@@ -1,0 +1,35 @@
+{
+  "configurations" : [
+    {
+      "id" : "24499A57-8A8C-49DD-9DF6-FD06943246D4",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:WhatsNext.xcodeproj",
+      "identifier" : "8B41F6442DEDD0D5001A66F9",
+      "name" : "WhatsNext"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:WhatsNextPackage",
+        "identifier" : "WhatsNextFeatureTests",
+        "name" : "WhatsNextFeatureTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:WhatsNext.xcodeproj",
+        "identifier" : "8B41F65B2DEDD0D6001A66F9",
+        "name" : "WhatsNextUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

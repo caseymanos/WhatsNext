@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+run xcode virtual and physical builds after mobile xcode changes, see @localruns.txt

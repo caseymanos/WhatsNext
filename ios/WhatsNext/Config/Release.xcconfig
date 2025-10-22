@@ -1,0 +1,43 @@
+#include "Shared.xcconfig"
+
+// Release Configuration for WhatsNext
+// This configuration is used for production builds
+
+// Build Settings
+SWIFT_OPTIMIZATION_LEVEL = -O
+SWIFT_COMPILATION_MODE = wholemodule
+GCC_OPTIMIZATION_LEVEL = s
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = RELEASE
+
+// Code Signing
+CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM = G79V58PSGA
+
+// Product
+PRODUCT_NAME = WhatsNext
+PRODUCT_BUNDLE_IDENTIFIER = com.gauntletai.whatsnext
+
+// App Configuration
+ENABLE_TESTABILITY = NO
+ENABLE_BITCODE = NO
+DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+VALIDATE_PRODUCT = YES
+COPY_PHASE_STRIP = YES
+STRIP_INSTALLED_PRODUCT = YES
+
+// Warnings (stricter in release)
+SWIFT_TREAT_WARNINGS_AS_ERRORS = YES
+GCC_TREAT_WARNINGS_AS_ERRORS = YES
+
+// Environment Variables (from system env)
+SUPABASE_URL = $(IOS_SUPABASE_URL)
+SUPABASE_ANON_KEY = $(IOS_SUPABASE_ANON_KEY)
+
+// Push Notifications Environment
+APNS_ENVIRONMENT = production
+
+// App Store Optimization
+DEPLOYMENT_POSTPROCESSING = YES
+STRIP_SWIFT_SYMBOLS = YES
+

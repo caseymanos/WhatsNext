@@ -1,0 +1,56 @@
+# Environment files
+.env.local
+.env
+
+# Xcode
+ios/MessageAI/*.xcodeproj/*
+ios/MessageAI/*.xcworkspace/*
+!ios/MessageAI/*.xcodeproj/project.pbxproj
+!ios/MessageAI/*.xcworkspace/contents.xcworkspacedata
+ios/MessageAI/xcuserdata/
+ios/MessageAI/*.xcscmblueprint
+ios/MessageAI/*.xccheckout
+ios/MessageAI/DerivedData/
+ios/MessageAI/build/
+
+ios/WhatsNext/*.xcodeproj/xcuserdata/
+ios/WhatsNext/*.xcworkspace/xcuserdata/
+ios/WhatsNext/WhatsNextPackage/.swiftpm/
+ios/WhatsNext/DerivedData/
+build/
+*.xcuserstate
+
+# iOS
+ios/MessageAI/*.ipa
+ios/MessageAI/*.dSYM.zip
+ios/MessageAI/*.dSYM
+
+# Swift Package Manager
+ios/MessageAI/.swiftpm/
+ios/MessageAI/.build/
+ios/MessageAI/Package.resolved
+
+# CocoaPods (if used)
+ios/MessageAI/Pods/
+ios/MessageAI/*.podspec
+
+# Mac
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Supabase
+.supabase/
+
+# Node (for scripts)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
