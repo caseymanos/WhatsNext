@@ -6,14 +6,13 @@ A modern iOS messaging application with AI capabilities, built with SwiftUI and 
 
 WhatsNext is a feature-rich messaging app that combines traditional chat functionality with AI-powered features. The app is being developed in phases:
 
-- **Phase 1 (Core)**: Core messaging features - **81% Complete**
+- **Phase 1 (Core)**: Core messaging features 
   - ✅ Authentication & Profile Management
   - ✅ 1:1 and Group Conversations
   - ✅ Real-time Messaging with Typing Indicators
   - ✅ Offline Support & Message Sync
   - ✅ Read Receipts
-  - 🚧 Push Notifications (APNs)
-  - 🚧 Group Management UI
+
 
 - **Phase 2 (AI)**: AI integration (message enhancement, smart replies, conversation summaries)
 
