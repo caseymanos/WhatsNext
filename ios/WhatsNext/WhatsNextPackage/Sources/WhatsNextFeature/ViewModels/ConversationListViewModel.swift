@@ -6,26 +6,25 @@ import UIKit
 #endif
 
 @MainActor
-final class ConversationListViewModel: ObservableObject {
-    @Published var conversations: [Conversation] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+public final class ConversationListViewModel: ObservableObject {
+    @Published public var conversations: [Conversation] = []
+    @Published public var isLoading = false
+    @Published public var errorMessage: String?
     
     private let conversationService = ConversationService()
     private let messageService = MessageService()
-    private let realtimeService = RealtimeService()
+    private let globalRealtimeManager = GlobalRealtimeManager.shared
     private var cancellables = Set<AnyCancellable>()
     private var currentUserId: UUID?
     
     // Track app lifecycle for refreshing when app returns to foreground
-    init() {
+    public init() {
         setupAppLifecycleObserver()
+        setupGlobalRealtimeObservers()
     }
     
     deinit {
-        Task { @MainActor in
-            await cleanup()
-        }
+        // Cleanup is handled by GlobalRealtimeManager
     }
     
     private func setupAppLifecycleObserver() {
@@ -49,7 +48,7 @@ final class ConversationListViewModel: ObservableObject {
     }
     
     /// Fetch all conversations for current user
-    func fetchConversations(userId: UUID) async {
+    public func fetchConversations(userId: UUID) async {
         isLoading = true
         errorMessage = nil
         currentUserId = userId
@@ -61,8 +60,8 @@ final class ConversationListViewModel: ObservableObject {
             // Fetch last message for each conversation
             await fetchLastMessages()
             
-            // Subscribe to realtime updates
-            await subscribeToUpdates(userId: userId)
+            // Update global manager with conversations list
+            globalRealtimeManager.updateConversations(conversations)
         } catch {
             errorMessage = "Failed to load conversations"
             print("Error fetching conversations: \(error)")
@@ -82,6 +81,24 @@ final class ConversationListViewModel: ObservableObject {
                 }
             } catch {
                 print("Error fetching last message for conversation \(conversations[index].id): \(error)")
+            }
+        }
+    }
+
+    /// Delete conversations (swipe-to-delete)
+    func deleteConversations(at offsets: IndexSet, currentUserId: UUID) async {
+        let idsToDelete = offsets.compactMap { idx in
+            conversations.indices.contains(idx) ? conversations[idx].id : nil
+        }
+        
+        // Optimistic UI
+        conversations.remove(atOffsets: offsets)
+        
+        for convId in idsToDelete {
+            do {
+                try await conversationService.removeParticipant(conversationId: convId, userId: currentUserId)
+            } catch {
+                print("Failed to delete conversation participation: \(error)")
             }
         }
     }
@@ -156,25 +173,25 @@ final class ConversationListViewModel: ObservableObject {
         }
     }
     
-    /// Subscribe to realtime updates for all conversations
-    private func subscribeToUpdates(userId: UUID) async {
-        do {
-            // Subscribe to conversation updates (when updated_at changes)
-            try await realtimeService.subscribeToConversationUpdates(userId: userId) { [weak self] updatedConversation in
-                Task { @MainActor [weak self] in
-                    await self?.handleConversationUpdate(updatedConversation)
-                }
-            }
-            
-            // Subscribe to all messages in user's conversations for live preview updates
-            try await realtimeService.subscribeToAllMessages(userId: userId) { [weak self] message in
+    /// Setup observers for global real-time events
+    private func setupGlobalRealtimeObservers() {
+        // Observe all messages to update conversation list
+        globalRealtimeManager.messagePublisher
+            .sink { [weak self] message in
                 Task { @MainActor [weak self] in
                     await self?.handleNewMessage(message)
                 }
             }
-        } catch {
-            print("Error subscribing to realtime updates: \(error)")
-        }
+            .store(in: &cancellables)
+        
+        // Observe conversation metadata updates
+        globalRealtimeManager.conversationUpdatePublisher
+            .sink { [weak self] conversation in
+                Task { @MainActor [weak self] in
+                    await self?.handleConversationUpdate(conversation)
+                }
+            }
+            .store(in: &cancellables)
     }
     
     /// Handle conversation update from realtime
@@ -211,10 +228,7 @@ final class ConversationListViewModel: ObservableObject {
             let conv = conversations.remove(at: index)
             conversations.insert(conv, at: 0)
             
-            // Show notification/banner if not from current user
-            if message.senderId != userId {
-                await showNotificationForMessage(message, in: conversations[0])
-            }
+            // Note: Notifications are now handled by GlobalRealtimeManager
         } else {
             // New conversation - refresh list
             await fetchConversations(userId: userId)
@@ -236,57 +250,6 @@ final class ConversationListViewModel: ObservableObject {
         } catch {
             print("Error fetching last message: \(error)")
         }
-    }
-    
-    /// Show notification/banner for incoming message
-    private func showNotificationForMessage(_ message: Message, in conversation: Conversation) async {
-        guard let userId = currentUserId else { return }
-        
-        // Don't show notification if this conversation is currently open
-        if realtimeService.currentOpenConversationId == conversation.id {
-            return
-        }
-        
-        let conversationName = displayName(for: conversation, currentUserId: userId)
-        let senderName = message.sender?.displayName 
-            ?? message.sender?.username 
-            ?? "Someone"
-        let messageContent = message.content ?? "[Media]"
-        
-        #if canImport(UIKit)
-        let appState = await UIApplication.shared.applicationState
-        
-        if appState == .active {
-            // App is in foreground - show in-app banner
-            await InAppBannerManager.shared.showBanner(
-                conversationId: conversation.id,
-                conversationName: conversationName,
-                senderName: senderName,
-                messageContent: messageContent
-            )
-        } else {
-            // App is in background - send local notification
-            await PushNotificationService.shared.scheduleLocalNotification(
-                conversationId: conversation.id,
-                conversationName: conversationName,
-                senderName: senderName,
-                messageContent: messageContent
-            )
-        }
-        #else
-        // macOS or other platforms
-        await PushNotificationService.shared.scheduleLocalNotification(
-            conversationId: conversation.id,
-            conversationName: conversationName,
-            senderName: senderName,
-            messageContent: messageContent
-        )
-        #endif
-    }
-    
-    /// Clean up subscriptions
-    func cleanup() async {
-        await realtimeService.cleanup()
     }
 }
 

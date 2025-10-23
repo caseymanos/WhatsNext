@@ -1,6 +1,6 @@
 import Foundation
 
-struct Message: Codable, Identifiable, Equatable, Hashable {
+public struct Message: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let conversationId: UUID
     let senderId: UUID

@@ -6,16 +6,29 @@ import WhatsNextFeature
 struct WhatsNextApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authViewModel = AuthViewModel()
+    @StateObject private var globalRealtimeManager = GlobalRealtimeManager.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(authViewModel)
+                .environmentObject(globalRealtimeManager)
+                .task {
+                    // Start global realtime if the user is already authenticated on launch
+                    if authViewModel.isAuthenticated {
+                        await handleAuthenticationChange(isAuthenticated: true)
+                    }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .didRegisterDeviceToken)) { notification in
                     if let token = notification.object as? String {
                         Task {
                             await handleDeviceToken(token)
                         }
+                    }
+                }
+                .onChange(of: authViewModel.isAuthenticated) { _, isAuthenticated in
+                    Task {
+                        await handleAuthenticationChange(isAuthenticated: isAuthenticated)
                     }
                 }
                 .onOpenURL { url in
@@ -38,6 +51,27 @@ struct WhatsNextApp: App {
         }
     }
 
+    @MainActor
+    private func handleAuthenticationChange(isAuthenticated: Bool) async {
+        if isAuthenticated, let userId = authViewModel.currentUser?.id {
+            // User logged in - start global real-time manager
+            print("User logged in, starting GlobalRealtimeManager")
+            
+            // Fetch conversations to initialize the manager
+            let conversationService = ConversationService()
+            do {
+                let conversations = try await conversationService.fetchConversations(userId: userId)
+                try await globalRealtimeManager.start(userId: userId, conversations: conversations)
+            } catch {
+                print("Failed to start GlobalRealtimeManager: \(error)")
+            }
+        } else {
+            // User logged out - stop global real-time manager
+            print("User logged out, stopping GlobalRealtimeManager")
+            await globalRealtimeManager.stop()
+        }
+    }
+    
     @MainActor
     private func handleDeepLink(_ url: URL) {
         print("📱 Received deep link: \(url.absoluteString)")

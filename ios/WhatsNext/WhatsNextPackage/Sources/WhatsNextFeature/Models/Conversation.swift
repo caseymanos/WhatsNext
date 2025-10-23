@@ -1,19 +1,19 @@
 import Foundation
 
-struct Conversation: Codable, Identifiable, Equatable, Hashable {
-    let id: UUID
-    var name: String?
-    var avatarUrl: String?
-    let isGroup: Bool
-    let createdAt: Date
-    var updatedAt: Date
+public struct Conversation: Codable, Identifiable, Equatable, Hashable {
+    public let id: UUID
+    public var name: String?
+    public var avatarUrl: String?
+    public let isGroup: Bool
+    public let createdAt: Date
+    public var updatedAt: Date
     
     // Computed/joined fields (not in DB)
-    var participants: [User]?
-    var lastMessage: Message?
-    var unreadCount: Int?
+    public var participants: [User]?
+    public var lastMessage: Message?
+    public var unreadCount: Int?
     
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case id
         case name
         case avatarUrl = "avatar_url"
@@ -22,12 +22,24 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
         case updatedAt = "updated_at"
     }
 
-    func hash(into hasher: inout Hasher) {
+    public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
 
-    static func == (lhs: Conversation, rhs: Conversation) -> Bool {
+    public static func == (lhs: Conversation, rhs: Conversation) -> Bool {
         lhs.id == rhs.id
+    }
+    
+    public init(id: UUID, name: String? = nil, avatarUrl: String? = nil, isGroup: Bool, createdAt: Date, updatedAt: Date, participants: [User]? = nil, lastMessage: Message? = nil, unreadCount: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.avatarUrl = avatarUrl
+        self.isGroup = isGroup
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.participants = participants
+        self.lastMessage = lastMessage
+        self.unreadCount = unreadCount
     }
 }
 

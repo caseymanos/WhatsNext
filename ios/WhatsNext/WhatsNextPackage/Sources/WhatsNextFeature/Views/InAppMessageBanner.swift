@@ -128,26 +128,26 @@ public struct InAppBannerModifier: ViewModifier {
     let onBannerTap: (UUID) -> Void
     
     public func body(content: Content) -> some View {
-        ZStack(alignment: .top) {
-            content
-            
-            if let banner = bannerManager.currentBanner {
-                InAppMessageBanner(
-                    conversationName: banner.conversationName,
-                    senderName: banner.senderName,
-                    messageContent: banner.messageContent,
-                    onTap: {
-                        onBannerTap(banner.conversationId)
-                    },
-                    onDismiss: {
-                        bannerManager.dismissBanner()
+        content
+            .safeAreaInset(edge: .top) {
+                Group {
+                    if let banner = bannerManager.currentBanner {
+                        InAppMessageBanner(
+                            conversationName: banner.conversationName,
+                            senderName: banner.senderName,
+                            messageContent: banner.messageContent,
+                            onTap: {
+                                onBannerTap(banner.conversationId)
+                            },
+                            onDismiss: {
+                                bannerManager.dismissBanner()
+                            }
+                        )
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(999)
                     }
-                )
-                .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(999)
+                }
             }
-        }
     }
 }
 

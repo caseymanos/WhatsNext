@@ -3,46 +3,54 @@ import SwiftUI
 import Combine
 
 @MainActor
-final class ChatViewModel: ObservableObject {
-    @Published var messages: [Message] = []
-    @Published var optimisticMessages: [String: Message] = [:] // localId -> Message
-    @Published var isLoading = false
-    @Published var isSending = false
-    @Published var errorMessage: String?
-    @Published var typingUsers: [UUID] = []
+public final class ChatViewModel: ObservableObject {
+    @Published public var messages: [Message] = []
+    @Published public var optimisticMessages: [String: Message] = [:] // localId -> Message
+    @Published public var isLoading = false
+    @Published public var isSending = false
+    @Published public var errorMessage: String?
+    @Published public var typingUsers: [UUID] = []
     
-    let conversation: Conversation
-    let currentUserId: UUID
+    public let conversation: Conversation
+    public let currentUserId: UUID
     
     private let messageService = MessageService()
     private let conversationService = ConversationService()
-    private let realtimeService = RealtimeService()
+    private let globalRealtimeManager = GlobalRealtimeManager.shared
     private var cancellables = Set<AnyCancellable>()
     private var typingTimer: Timer?
     private var typingCheckTimer: Timer?
     private var markingAsRead = Set<UUID>() // Track messages currently being marked as read
     
-    init(conversation: Conversation, currentUserId: UUID) {
+    public init(conversation: Conversation, currentUserId: UUID) {
         self.conversation = conversation
         self.currentUserId = currentUserId
         
         // Start periodic typing check
         startTypingCheck()
+        
+        // Observe global real-time events
+        setupGlobalRealtimeObservers()
     }
     
     deinit {
-        Task { [realtimeService, conversation] in
-            await realtimeService.unsubscribeFromMessages(conversationId: conversation.id)
-            await realtimeService.unsubscribeFromTypingIndicators(conversationId: conversation.id)
-            await realtimeService.unsubscribeFromReadReceipts(conversationId: conversation.id)
-            // Clear the currently open conversation
-            realtimeService.currentOpenConversationId = nil
-        }
+        // Clean up synchronously - no async work in deinit
         typingCheckTimer?.invalidate()
+        
+        // Unregister this conversation as currently open (synchronous)
+        globalRealtimeManager.setOpenConversation(nil)
+        
+        // Schedule async cleanup without capturing self
+        let conversationId = conversation.id
+        let manager = globalRealtimeManager
+        Task.detached {
+            await manager.unsubscribeFromTyping(conversationId: conversationId)
+            await manager.unsubscribeFromReadReceipts(conversationId: conversationId)
+        }
     }
     
     /// Fetch messages for the conversation
-    func fetchMessages() async {
+    public func fetchMessages() async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -56,51 +64,50 @@ final class ChatViewModel: ObservableObject {
                 userId: currentUserId
             )
             
-            // Subscribe to real-time updates
-            try await subscribeToRealtimeUpdates()
+            // Register this conversation as currently open
+            globalRealtimeManager.setOpenConversation(conversation.id)
             
-            // Mark this conversation as currently open
-            realtimeService.currentOpenConversationId = conversation.id
+            // Subscribe to conversation-specific events (typing, read receipts)
+            try await globalRealtimeManager.subscribeToTyping(conversationId: conversation.id)
+            try await globalRealtimeManager.subscribeToReadReceipts(conversationId: conversation.id)
         } catch {
             errorMessage = "Failed to load messages"
             print("Error fetching messages: \(error)")
         }
     }
     
-    /// Subscribe to real-time message and typing updates
-    private func subscribeToRealtimeUpdates() async throws {
-        // Get conversation name for notifications
-        let conversationName = getConversationName()
-        
-        // Subscribe to messages
-        try await realtimeService.subscribeToMessages(
-            conversationId: conversation.id,
-            currentUserId: currentUserId,
-            conversationName: conversationName
-        ) { [weak self] message in
-            Task { @MainActor in
+    /// Setup observers for global real-time events
+    private func setupGlobalRealtimeObservers() {
+        // Observe incoming messages for this conversation
+        globalRealtimeManager.messagePublisher
+            .filter { [weak self] message in
+                message.conversationId == self?.conversation.id
+            }
+            .sink { [weak self] message in
                 self?.handleIncomingMessage(message)
             }
-        }
+            .store(in: &cancellables)
         
-        // Subscribe to typing indicators
-        try await realtimeService.subscribeToTypingIndicators(
-            conversationId: conversation.id,
-            excludeUserId: currentUserId
-        ) { [weak self] indicator in
-            Task { @MainActor in
+        // Observe typing indicators for this conversation
+        globalRealtimeManager.typingPublisher
+            .filter { [weak self] indicator in
+                indicator.conversationId == self?.conversation.id
+            }
+            .sink { [weak self] indicator in
                 self?.handleTypingIndicator(indicator)
             }
-        }
+            .store(in: &cancellables)
         
-        // Subscribe to read receipts
-        try await realtimeService.subscribeToReadReceipts(
-            conversationId: conversation.id
-        ) { [weak self] receipt in
-            Task { @MainActor in
+        // Observe read receipts for this conversation
+        globalRealtimeManager.readReceiptPublisher
+            .filter { [weak self] receipt in
+                // Check if this receipt is for any message in this conversation
+                self?.messages.contains(where: { $0.id == receipt.messageId }) ?? false
+            }
+            .sink { [weak self] receipt in
                 self?.handleReadReceipt(receipt)
             }
-        }
+            .store(in: &cancellables)
     }
     
     /// Get conversation display name

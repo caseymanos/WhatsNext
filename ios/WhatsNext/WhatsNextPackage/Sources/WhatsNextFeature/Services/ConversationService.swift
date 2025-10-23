@@ -1,11 +1,12 @@
 import Foundation
 import Supabase
 
-final class ConversationService {
+public final class ConversationService {
+    public init() {}
     private let supabase = SupabaseClientService.shared
     
     /// Fetch all conversations for the current user
-    func fetchConversations(userId: UUID) async throws -> [Conversation] {
+    public func fetchConversations(userId: UUID) async throws -> [Conversation] {
         // Fetch conversation IDs user is part of
         let participantRecords: [ConversationParticipant] = try await supabase.database
             .from("conversation_participants")

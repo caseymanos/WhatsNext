@@ -1,6 +1,0 @@
-// Configuration file for MessageAI
-// These values should be populated from environment variables
-
-SUPABASE_URL = $(IOS_SUPABASE_URL)
-SUPABASE_ANON_KEY = $(IOS_SUPABASE_ANON_KEY)
-

@@ -94,6 +94,43 @@ public final class PushNotificationService: NSObject {
         return settings.authorizationStatus
     }
     
+    /// Schedule a local notification for a new message (for simulator)
+    public func scheduleLocalNotification(
+        conversationId: UUID,
+        conversationName: String,
+        senderName: String,
+        messageContent: String
+    ) async {
+        logger.info("Scheduling local notification for conversation: \(conversationId.uuidString)")
+        
+        let content = UNMutableNotificationContent()
+        content.title = conversationName
+        content.body = "\(senderName): \(messageContent)"
+        content.sound = .default
+        content.badge = 1
+        content.userInfo = [
+            "conversation_id": conversationId.uuidString,
+            "sender_name": senderName
+        ]
+        
+        // Trigger immediately
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        
+        // Create request with unique identifier
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: trigger
+        )
+        
+        do {
+            try await notificationCenter.add(request)
+            logger.info("Local notification scheduled successfully")
+        } catch {
+            logger.error("Failed to schedule local notification: \(error.localizedDescription)")
+        }
+    }
+    
     /// Handle notification when app is in foreground
     func handleForegroundNotification(_ notification: UNNotification) {
         let userInfo = notification.request.content.userInfo
@@ -124,43 +161,6 @@ public final class PushNotificationService: NSObject {
                 object: nil,
                 userInfo: ["conversation_id": conversationId]
             )
-        }
-    }
-    
-    /// Schedule a local notification for a received message
-    public func scheduleLocalNotification(
-        conversationId: UUID,
-        conversationName: String,
-        senderName: String,
-        messageContent: String
-    ) async {
-        logger.info("Scheduling local notification for conversation: \(conversationId)")
-        
-        let content = UNMutableNotificationContent()
-        content.title = conversationName
-        content.body = "\(senderName): \(messageContent)"
-        content.sound = .default
-        content.badge = 1
-        content.userInfo = ["conversation_id": conversationId.uuidString]
-        
-        // Create a unique identifier for the notification
-        let identifier = "message-\(conversationId)-\(UUID().uuidString)"
-        
-        // Create trigger (deliver immediately)
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
-        
-        // Create request
-        let request = UNNotificationRequest(
-            identifier: identifier,
-            content: content,
-            trigger: trigger
-        )
-        
-        do {
-            try await notificationCenter.add(request)
-            logger.info("Local notification scheduled successfully")
-        } catch {
-            logger.error("Failed to schedule local notification: \(error.localizedDescription)")
         }
     }
 }

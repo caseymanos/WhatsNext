@@ -1,9 +1,6 @@
 import Foundation
 import Supabase
 import Combine
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// Service for managing real-time subscriptions
 final class RealtimeService {
@@ -14,15 +11,10 @@ final class RealtimeService {
     private var subscriptionTasks: [UUID: Task<Void, Never>] = [:]
     private var typingSubscriptionTasks: [UUID: Task<Void, Never>] = [:]
     private var conversationTask: Task<Void, Never>?
-    
-    // Track which conversation is currently open to avoid notifying for it
-    var currentOpenConversationId: UUID?
 
     /// Subscribe to messages in a conversation
     func subscribeToMessages(
         conversationId: UUID,
-        currentUserId: UUID,
-        conversationName: String,
         onMessage: @escaping (Message) -> Void
     ) async throws {
         // Clean up existing subscription if any
@@ -46,18 +38,8 @@ final class RealtimeService {
 
                 for try await insertion in channel.postgresChange(InsertAction.self, table: "messages") {
                     let message = try insertion.decodeRecord(as: Message.self, decoder: decoder)
-                    // Filter by conversation ID and exclude own messages
-                    if message.conversationId == conversationId && message.senderId != currentUserId {
-                        onMessage(message)
-                        
-                        // Handle notification/banner for incoming message
-                        await self.handleIncomingMessageNotification(
-                            message: message,
-                            conversationId: conversationId,
-                            conversationName: conversationName
-                        )
-                    } else if message.conversationId == conversationId {
-                        // Still call onMessage for own messages (for optimistic UI updates)
+                    // Filter by conversation ID
+                    if message.conversationId == conversationId {
                         onMessage(message)
                     }
                 }
@@ -66,55 +48,6 @@ final class RealtimeService {
             }
         }
         subscriptionTasks[conversationId] = task
-    }
-    
-    /// Handle incoming message notification/banner
-    private func handleIncomingMessageNotification(
-        message: Message,
-        conversationId: UUID,
-        conversationName: String
-    ) async {
-        // Get sender name
-        let senderName = message.sender?.displayName 
-            ?? message.sender?.username 
-            ?? "Someone"
-        
-        let messageContent = message.content ?? "[Media]"
-        
-        #if canImport(UIKit)
-        // Check app state
-        let appState = await UIApplication.shared.applicationState
-        
-        if appState == .active {
-            // App is in foreground - show in-app banner only if not viewing this conversation
-            if currentOpenConversationId != conversationId {
-                await MainActor.run {
-                    InAppBannerManager.shared.showBanner(
-                        conversationId: conversationId,
-                        conversationName: conversationName,
-                        senderName: senderName,
-                        messageContent: messageContent
-                    )
-                }
-            }
-        } else {
-            // App is in background or inactive - send local notification
-            await PushNotificationService.shared.scheduleLocalNotification(
-                conversationId: conversationId,
-                conversationName: conversationName,
-                senderName: senderName,
-                messageContent: messageContent
-            )
-        }
-        #else
-        // macOS or other platforms - just send local notification
-        await PushNotificationService.shared.scheduleLocalNotification(
-            conversationId: conversationId,
-            conversationName: conversationName,
-            senderName: senderName,
-            messageContent: messageContent
-        )
-        #endif
     }
 
     /// Unsubscribe from messages in a conversation
@@ -223,95 +156,6 @@ final class RealtimeService {
             }
         }
         conversationTask = task
-    }
-    
-    /// Subscribe to all messages across all conversations (for conversation list updates)
-    func subscribeToAllMessages(
-        userId: UUID,
-        onMessage: @escaping (Message) -> Void
-    ) async throws {
-        let channel = await supabase.realtimeV2.channel("all_messages:\(userId)")
-        
-        // Subscribe to the channel
-        try await channel.subscribe()
-        
-        // Store in a separate channel if needed, or reuse conversationChannel
-        // For now, we'll create a task to listen
-        let task = Task {
-            do {
-                let decoder = JSONDecoder()
-                decoder.keyDecodingStrategy = .convertFromSnakeCase
-                decoder.dateDecodingStrategy = .iso8601
-                
-                for try await insertion in channel.postgresChange(InsertAction.self, table: "messages") {
-                    let message = try insertion.decodeRecord(as: Message.self, decoder: decoder)
-                    onMessage(message)
-                }
-            } catch {
-                print("Error in all messages subscription: \(error)")
-            }
-        }
-        
-        // Store the task so it can be cancelled later
-        subscriptionTasks[UUID()] = task
-        
-        // Store the channel for cleanup
-        messageChannels[UUID()] = channel
-    }
-    
-    /// Subscribe to read receipts for messages in a conversation
-    func subscribeToReadReceipts(
-        conversationId: UUID,
-        onReceipt: @escaping (ReadReceipt) -> Void
-    ) async throws {
-        let channel = await supabase.realtimeV2.channel("read_receipts:\(conversationId)")
-        
-        // Subscribe to the channel
-        try await channel.subscribe()
-        
-        // Listen for read receipt inserts/updates
-        let task = Task {
-            do {
-                let decoder = JSONDecoder()
-                decoder.keyDecodingStrategy = .convertFromSnakeCase
-                decoder.dateDecodingStrategy = .iso8601
-                
-                // Listen for both inserts and updates (upserts)
-                for try await change in channel.postgresChange(AnyAction.self, table: "read_receipts") {
-                    switch change {
-                    case .insert(let insertion):
-                        if let receipt = try? insertion.decodeRecord(as: ReadReceipt.self, decoder: decoder) {
-                            onReceipt(receipt)
-                        }
-                    case .update(let update):
-                        if let receipt = try? update.decodeRecord(as: ReadReceipt.self, decoder: decoder) {
-                            onReceipt(receipt)
-                        }
-                    case .delete:
-                        break
-                    }
-                }
-            } catch {
-                print("Error in read receipts subscription: \(error)")
-            }
-        }
-        
-        // Store the task for this conversation
-        subscriptionTasks[conversationId] = task
-        
-        // Store the channel for cleanup
-        messageChannels[conversationId] = channel
-    }
-    
-    /// Unsubscribe from read receipts for a conversation
-    func unsubscribeFromReadReceipts(conversationId: UUID) async {
-        subscriptionTasks[conversationId]?.cancel()
-        subscriptionTasks.removeValue(forKey: conversationId)
-        
-        if let channel = messageChannels[conversationId] {
-            await supabase.realtimeV2.removeChannel(channel)
-            messageChannels.removeValue(forKey: conversationId)
-        }
     }
 
     /// Clean up all subscriptions

@@ -44,6 +44,12 @@ struct ConversationListView: View {
                                 )
                             }
                         }
+                        .onDelete { indexSet in
+                            Task {
+                                guard let userId = authViewModel.currentUser?.id else { return }
+                                await viewModel.deleteConversations(at: indexSet, currentUserId: userId)
+                            }
+                        }
                     }
                     .refreshable {
                         if let userId = authViewModel.currentUser?.id {
@@ -148,14 +154,14 @@ struct ConversationRow: View {
                     Spacer()
                     
                     if let lastMessage = conversation.lastMessage {
-                        Text(lastMessage.createdAt, style: .relative)
+                        Text(lastMessage.createdAt, formatter: timeFormatter)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 
                 if let lastMessage = conversation.lastMessage {
-                    Text(lastMessage.content ?? "Media")
+                    Text(previewText(lastMessage))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -168,7 +174,21 @@ struct ConversationRow: View {
     private var displayName: String {
         viewModel.displayName(for: conversation, currentUserId: currentUserId)
     }
+    
+    private func previewText(_ message: Message) -> String {
+        if conversation.isGroup, let sender = message.sender?.displayName ?? message.sender?.username {
+            return "\(sender): \(message.content ?? "Media")"
+        }
+        return message.content ?? "Media"
+    }
 }
+
+private let timeFormatter: DateFormatter = {
+    let df = DateFormatter()
+    df.timeStyle = .short
+    df.dateStyle = .none
+    return df
+}()
 
 struct NewConversationView: View {
     @Environment(\.dismiss) var dismiss
