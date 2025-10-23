@@ -8,9 +8,16 @@ final class RealtimeService {
     private var messageChannels: [UUID: RealtimeChannelV2] = [:]
     private var typingChannels: [UUID: RealtimeChannelV2] = [:]
     private var conversationChannel: RealtimeChannelV2?
+    private var globalMessagesChannel: RealtimeChannelV2?
+    private var readReceiptsChannel: RealtimeChannelV2?
     private var subscriptionTasks: [UUID: Task<Void, Never>] = [:]
     private var typingSubscriptionTasks: [UUID: Task<Void, Never>] = [:]
     private var conversationTask: Task<Void, Never>?
+    private var globalMessagesTask: Task<Void, Never>?
+    private var readReceiptsTask: Task<Void, Never>?
+    
+    // Track which conversation is currently open (for notification filtering)
+    var currentOpenConversationId: UUID?
 
     /// Subscribe to messages in a conversation
     func subscribeToMessages(
@@ -158,6 +165,97 @@ final class RealtimeService {
         conversationTask = task
     }
 
+    /// Subscribe to all messages for user's conversations (global subscription)
+    func subscribeToAllMessages(
+        userId: UUID,
+        onMessage: @escaping (Message) -> Void
+    ) async throws {
+        // Clean up existing subscription if any
+        globalMessagesTask?.cancel()
+        if let existingChannel = globalMessagesChannel {
+            await supabase.realtimeV2.removeChannel(existingChannel)
+        }
+        
+        let channel = await supabase.realtimeV2.channel("global_messages:\(userId)")
+        
+        // Subscribe to the channel
+        try await channel.subscribe()
+        globalMessagesChannel = channel
+        
+        // Listen for all message inserts
+        let task = Task {
+            do {
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                decoder.dateDecodingStrategy = .iso8601
+                
+                for try await insertion in channel.postgresChange(InsertAction.self, table: "messages") {
+                    let message = try insertion.decodeRecord(as: Message.self, decoder: decoder)
+                    onMessage(message)
+                }
+            } catch {
+                print("Error in global messages subscription: \(error)")
+            }
+        }
+        globalMessagesTask = task
+    }
+    
+    /// Subscribe to read receipts for a conversation
+    func subscribeToReadReceipts(
+        conversationId: UUID,
+        onReadReceipt: @escaping (ReadReceipt) -> Void
+    ) async throws {
+        // Clean up existing subscription if any
+        readReceiptsTask?.cancel()
+        if let existingChannel = readReceiptsChannel {
+            await supabase.realtimeV2.removeChannel(existingChannel)
+        }
+        
+        let channel = await supabase.realtimeV2.channel("read_receipts:\(conversationId)")
+        
+        // Subscribe to the channel
+        try await channel.subscribe()
+        readReceiptsChannel = channel
+        
+        // Listen for read receipt inserts and updates
+        let task = Task {
+            do {
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                decoder.dateDecodingStrategy = .iso8601
+                
+                for try await change in channel.postgresChange(AnyAction.self, table: "read_receipts") {
+                    switch change {
+                    case .insert(let insertion):
+                        if let receipt = try? insertion.decodeRecord(as: ReadReceipt.self, decoder: decoder) {
+                            onReadReceipt(receipt)
+                        }
+                    case .update(let update):
+                        if let receipt = try? update.decodeRecord(as: ReadReceipt.self, decoder: decoder) {
+                            onReadReceipt(receipt)
+                        }
+                    case .delete:
+                        break
+                    }
+                }
+            } catch {
+                print("Error in read receipts subscription: \(error)")
+            }
+        }
+        readReceiptsTask = task
+    }
+    
+    /// Unsubscribe from read receipts
+    func unsubscribeFromReadReceipts(conversationId: UUID) async {
+        readReceiptsTask?.cancel()
+        readReceiptsTask = nil
+        
+        if let channel = readReceiptsChannel {
+            await supabase.realtimeV2.removeChannel(channel)
+            readReceiptsChannel = nil
+        }
+    }
+
     /// Clean up all subscriptions
     func cleanup() async {
         // Cancel all tasks
@@ -168,6 +266,8 @@ final class RealtimeService {
             task.cancel()
         }
         conversationTask?.cancel()
+        globalMessagesTask?.cancel()
+        readReceiptsTask?.cancel()
 
         // Remove all channels
         for (_, channel) in messageChannels {
@@ -179,6 +279,12 @@ final class RealtimeService {
         if let channel = conversationChannel {
             await supabase.realtimeV2.removeChannel(channel)
         }
+        if let channel = globalMessagesChannel {
+            await supabase.realtimeV2.removeChannel(channel)
+        }
+        if let channel = readReceiptsChannel {
+            await supabase.realtimeV2.removeChannel(channel)
+        }
 
         // Clear dictionaries
         messageChannels.removeAll()
@@ -187,5 +293,10 @@ final class RealtimeService {
         typingSubscriptionTasks.removeAll()
         conversationChannel = nil
         conversationTask = nil
+        globalMessagesChannel = nil
+        globalMessagesTask = nil
+        readReceiptsChannel = nil
+        readReceiptsTask = nil
+        currentOpenConversationId = nil
     }
 }

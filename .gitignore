@@ -53,4 +53,12 @@ yarn-error.log
 *.swp
 *.swo
 *~
+.claude/
+
+# Local dev files
+.app-store/
+.BrowserLock/
+.bun/
+.cache/
+*.log
 

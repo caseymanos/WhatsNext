@@ -60,8 +60,18 @@ public final class ConversationListViewModel: ObservableObject {
             // Fetch last message for each conversation
             await fetchLastMessages()
             
-            // Update global manager with conversations list
-            globalRealtimeManager.updateConversations(conversations)
+            // Start global realtime manager if not already active
+            if !globalRealtimeManager.isActive {
+                do {
+                    try await globalRealtimeManager.start(userId: userId, conversations: conversations)
+                    print("✅ GlobalRealtimeManager started successfully")
+                } catch {
+                    print("⚠️ Failed to start GlobalRealtimeManager: \(error)")
+                }
+            } else {
+                // Update global manager with conversations list
+                globalRealtimeManager.updateConversations(conversations)
+            }
         } catch {
             errorMessage = "Failed to load conversations"
             print("Error fetching conversations: \(error)")

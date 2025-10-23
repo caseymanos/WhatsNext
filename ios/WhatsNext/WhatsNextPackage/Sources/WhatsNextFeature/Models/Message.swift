@@ -1,22 +1,22 @@
 import Foundation
 
 public struct Message: Codable, Identifiable, Equatable, Hashable {
-    let id: UUID
-    let conversationId: UUID
-    let senderId: UUID
-    let content: String?
-    let messageType: MessageType
-    let mediaUrl: String?
-    let createdAt: Date
-    var updatedAt: Date?
-    var deletedAt: Date?
-    let localId: String?
+    public let id: UUID
+    public let conversationId: UUID
+    public let senderId: UUID
+    public let content: String?
+    public let messageType: MessageType
+    public let mediaUrl: String?
+    public let createdAt: Date
+    public var updatedAt: Date?
+    public var deletedAt: Date?
+    public let localId: String?
     
     // Computed/joined fields
-    var sender: User?
-    var readReceipts: [ReadReceipt]?
+    public var sender: User?
+    public var readReceipts: [ReadReceipt]?
     
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case id
         case conversationId = "conversation_id"
         case senderId = "sender_id"
@@ -29,16 +29,16 @@ public struct Message: Codable, Identifiable, Equatable, Hashable {
         case localId = "local_id"
     }
     
-    static func == (lhs: Message, rhs: Message) -> Bool {
+    public static func == (lhs: Message, rhs: Message) -> Bool {
         lhs.id == rhs.id
     }
 
-    func hash(into hasher: inout Hasher) {
+    public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
 }
 
-enum MessageType: String, Codable {
+public enum MessageType: String, Codable {
     case text
     case image
     case video
@@ -47,32 +47,32 @@ enum MessageType: String, Codable {
     case system
 }
 
-struct ReadReceipt: Codable, Identifiable {
-    let messageId: UUID
-    let userId: UUID
-    let readAt: Date
+public struct ReadReceipt: Codable, Identifiable {
+    public let messageId: UUID
+    public let userId: UUID
+    public let readAt: Date
     
-    var id: String {
+    public var id: String {
         "\(messageId)_\(userId)"
     }
     
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case messageId = "message_id"
         case userId = "user_id"
         case readAt = "read_at"
     }
 }
 
-struct TypingIndicator: Codable, Identifiable {
-    let conversationId: UUID
-    let userId: UUID
-    let lastTyped: Date
+public struct TypingIndicator: Codable, Identifiable {
+    public let conversationId: UUID
+    public let userId: UUID
+    public let lastTyped: Date
     
-    var id: String {
+    public var id: String {
         "\(conversationId)_\(userId)"
     }
     
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case conversationId = "conversation_id"
         case userId = "user_id"
         case lastTyped = "last_typed"
