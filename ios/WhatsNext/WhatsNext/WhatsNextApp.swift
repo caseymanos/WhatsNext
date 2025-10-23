@@ -1,12 +1,15 @@
 import SwiftUI
 import UIKit
 import WhatsNextFeature
+import OSLog
 
 @main
 struct WhatsNextApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authViewModel = AuthViewModel()
     @StateObject private var globalRealtimeManager = GlobalRealtimeManager.shared
+    
+    private let logger = Logger(subsystem: "com.gauntletai.whatsnext", category: "WhatsNextApp")
 
     var body: some Scene {
         WindowGroup {
@@ -55,19 +58,22 @@ struct WhatsNextApp: App {
     private func handleAuthenticationChange(isAuthenticated: Bool) async {
         if isAuthenticated, let userId = authViewModel.currentUser?.id {
             // User logged in - start global real-time manager
-            print("User logged in, starting GlobalRealtimeManager")
+            logger.info("User logged in, starting GlobalRealtimeManager")
             
             // Fetch conversations to initialize the manager
             let conversationService = ConversationService()
             do {
                 let conversations = try await conversationService.fetchConversations(userId: userId)
+                logger.info("Fetched \(conversations.count) conversations")
+                
                 try await globalRealtimeManager.start(userId: userId, conversations: conversations)
+                logger.info("✅ GlobalRealtimeManager started successfully")
             } catch {
-                print("Failed to start GlobalRealtimeManager: \(error)")
+                logger.error("❌ Failed to start GlobalRealtimeManager: \(error.localizedDescription)")
             }
         } else {
             // User logged out - stop global real-time manager
-            print("User logged out, stopping GlobalRealtimeManager")
+            logger.info("User logged out, stopping GlobalRealtimeManager")
             await globalRealtimeManager.stop()
         }
     }

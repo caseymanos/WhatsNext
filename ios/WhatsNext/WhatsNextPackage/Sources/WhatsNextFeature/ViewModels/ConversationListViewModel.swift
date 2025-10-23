@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import OSLog
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -16,6 +17,7 @@ public final class ConversationListViewModel: ObservableObject {
     private let globalRealtimeManager = GlobalRealtimeManager.shared
     private var cancellables = Set<AnyCancellable>()
     private var currentUserId: UUID?
+    private let logger = Logger(subsystem: "com.gauntletai.whatsnext", category: "ConversationListVM")
     
     // Track app lifecycle for refreshing when app returns to foreground
     public init() {
@@ -60,17 +62,14 @@ public final class ConversationListViewModel: ObservableObject {
             // Fetch last message for each conversation
             await fetchLastMessages()
             
-            // Start global realtime manager if not already active
-            if !globalRealtimeManager.isActive {
-                do {
-                    try await globalRealtimeManager.start(userId: userId, conversations: conversations)
-                    print("✅ GlobalRealtimeManager started successfully")
-                } catch {
-                    print("⚠️ Failed to start GlobalRealtimeManager: \(error)")
-                }
-            } else {
-                // Update global manager with conversations list
+            // Update global manager with conversations list
+            // Note: GlobalRealtimeManager is started in WhatsNextApp.swift on login
+            // We just update the conversations cache here
+            if globalRealtimeManager.isActive {
                 globalRealtimeManager.updateConversations(conversations)
+                logger.info("Updated conversations in GlobalRealtimeManager")
+            } else {
+                logger.warning("⚠️ GlobalRealtimeManager not active yet")
             }
         } catch {
             errorMessage = "Failed to load conversations"

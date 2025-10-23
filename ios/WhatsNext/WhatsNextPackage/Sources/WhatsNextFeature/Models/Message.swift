@@ -27,6 +27,36 @@ public struct Message: Codable, Identifiable, Equatable, Hashable {
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"
         case localId = "local_id"
+        // sender and readReceipts are computed fields, not decoded
+    }
+    
+    // Regular initializer for creating messages
+    public init(
+        id: UUID,
+        conversationId: UUID,
+        senderId: UUID,
+        content: String?,
+        messageType: MessageType = .text,
+        mediaUrl: String? = nil,
+        createdAt: Date,
+        updatedAt: Date? = nil,
+        deletedAt: Date? = nil,
+        localId: String? = nil,
+        sender: User? = nil,
+        readReceipts: [ReadReceipt]? = nil
+    ) {
+        self.id = id
+        self.conversationId = conversationId
+        self.senderId = senderId
+        self.content = content
+        self.messageType = messageType
+        self.mediaUrl = mediaUrl
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.deletedAt = deletedAt
+        self.localId = localId
+        self.sender = sender
+        self.readReceipts = readReceipts
     }
     
     public static func == (lhs: Message, rhs: Message) -> Bool {

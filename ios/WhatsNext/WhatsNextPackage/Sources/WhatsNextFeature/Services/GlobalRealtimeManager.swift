@@ -41,15 +41,28 @@ public final class GlobalRealtimeManager: ObservableObject {
         }
         
         logger.info("Starting GlobalRealtimeManager for user: \(userId.uuidString)")
+        logger.info("Conversations count: \(conversations.count)")
         
         self.currentUserId = userId
         self.conversations = Dictionary(uniqueKeysWithValues: conversations.map { ($0.id, $0) })
         
         // Subscribe to all messages across all user conversations
-        try await subscribeToAllMessages(userId: userId)
+        do {
+            try await subscribeToAllMessages(userId: userId)
+            logger.info("✅ Messages subscription successful")
+        } catch {
+            logger.error("❌ Messages subscription failed: \(error.localizedDescription)")
+            throw error
+        }
         
         // Subscribe to conversation metadata updates
-        try await subscribeToConversationUpdates(userId: userId)
+        do {
+            try await subscribeToConversationUpdates(userId: userId)
+            logger.info("✅ Conversation updates subscription successful")
+        } catch {
+            logger.error("❌ Conversation updates subscription failed: \(error.localizedDescription)")
+            throw error
+        }
         
         isActive = true
         logger.info("GlobalRealtimeManager started successfully")
@@ -143,8 +156,14 @@ public final class GlobalRealtimeManager: ObservableObject {
     private func handleIncomingMessage(_ message: Message) async {
         logger.debug("Received message: \(message.id.uuidString) in conversation: \(message.conversationId.uuidString)")
         
+        // Client-side filter: Verify message belongs to user's conversations
+        guard isUserMemberOfConversation(message.conversationId) else {
+            logger.warning("Filtered out message for non-member conversation: \(message.conversationId.uuidString)")
+            return
+        }
+        
         // Broadcast message to all observers
-        logger.debug("[GRM] onMessage -> conv=\(message.conversationId) id=\(message.id)")
+        logger.debug("[GRM] Broadcasting message -> conv=\(message.conversationId) id=\(message.id)")
         messagePublisher.send(message)
         
         // Show notification if appropriate
@@ -155,26 +174,41 @@ public final class GlobalRealtimeManager: ObservableObject {
     private func handleConversationUpdate(_ conversation: Conversation) {
         logger.debug("Received conversation update: \(conversation.id.uuidString)")
         
+        // Client-side filter: Verify user is a participant
+        guard isUserMemberOfConversation(conversation.id) else {
+            logger.warning("Filtered out update for non-member conversation: \(conversation.id.uuidString)")
+            return
+        }
+        
         // Update local cache
         conversations[conversation.id] = conversation
         
         // Broadcast to observers
+        logger.debug("[GRM] Broadcasting conversation update -> conv=\(conversation.id)")
         conversationUpdatePublisher.send(conversation)
+    }
+    
+    /// Check if user is member of a conversation
+    private func isUserMemberOfConversation(_ conversationId: UUID) -> Bool {
+        return conversations.keys.contains(conversationId)
     }
     
     /// Show appropriate notification based on app state and current context
     private func showAppropriateNotification(for message: Message) async {
-        guard let userId = currentUserId else { return }
+        guard let userId = currentUserId else {
+            logger.debug("No current user - skipping notification")
+            return
+        }
         
         // Don't notify for own messages
         guard message.senderId != userId else {
-            logger.debug("Skipping notification for own message")
+            logger.debug("Skipping notification for own message: \(message.id.uuidString)")
             return
         }
         
         // Don't notify if this conversation is currently open
         if currentOpenConversationId == message.conversationId {
-            logger.debug("Skipping notification - conversation is open")
+            logger.debug("Skipping notification - conversation \(message.conversationId.uuidString) is currently open")
             return
         }
         
