@@ -1,0 +1,56 @@
+{
+  "description": "Sample conversation for testing RSVP tracking",
+  "scenario": "School parent coordinator requesting RSVPs for various events",
+  "messages": [
+    {
+      "sender": "School Coordinator",
+      "content": "Hi parents! We need RSVPs for the Fall Field Trip to the Science Museum on Friday, November 10th. Please respond by Monday, November 6th so we can arrange transportation.",
+      "timestamp": "2025-10-25T14:00:00Z"
+    },
+    {
+      "sender": "Jennifer",
+      "content": "Yes, my daughter Emma will be attending!",
+      "timestamp": "2025-10-25T14:15:00Z"
+    },
+    {
+      "sender": "School Coordinator",
+      "content": "Thanks Jennifer! Still waiting to hear from: Mike, Sarah, Lisa, and Tom.",
+      "timestamp": "2025-10-25T14:20:00Z"
+    },
+    {
+      "sender": "School Coordinator",
+      "content": "Also, quick reminder - we need volunteers for the Halloween Party on October 31st. Can anyone help from 2-4 PM? Please let me know by tomorrow.",
+      "timestamp": "2025-10-25T14:25:00Z"
+    },
+    {
+      "sender": "Sarah",
+      "content": "I can help with the Halloween party!",
+      "timestamp": "2025-10-25T14:30:00Z"
+    },
+    {
+      "sender": "School Coordinator",
+      "content": "Perfect Sarah! One more thing - parent-teacher conference signups are open. Please schedule your 15-minute slot by end of this week. Link in the school portal.",
+      "timestamp": "2025-10-25T14:35:00Z"
+    }
+  ],
+  "expectedRSVPs": [
+    {
+      "eventName": "Fall Field Trip to Science Museum",
+      "eventDate": "2025-11-10",
+      "deadline": "2025-11-06",
+      "requestedBy": "School Coordinator",
+      "recipientMentions": ["Mike", "Sarah", "Lisa", "Tom"]
+    },
+    {
+      "eventName": "Halloween Party Volunteer",
+      "eventDate": "2025-10-31T14:00:00Z",
+      "deadline": "2025-10-26",
+      "requestedBy": "School Coordinator"
+    },
+    {
+      "eventName": "Parent-Teacher Conference Signup",
+      "deadline": "2025-10-27",
+      "requestedBy": "School Coordinator"
+    }
+  ]
+}

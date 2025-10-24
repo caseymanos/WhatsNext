@@ -1,0 +1,78 @@
+{
+  "description": "Sample conversation for testing decision tracking",
+  "scenario": "Family planning weekend activities and meals",
+  "messages": [
+    {
+      "sender": "Mom",
+      "content": "What should we do this weekend? The weather looks nice.",
+      "timestamp": "2025-10-25T18:00:00Z"
+    },
+    {
+      "sender": "Dad",
+      "content": "How about we go to the zoo on Saturday morning? The kids have been asking.",
+      "timestamp": "2025-10-25T18:05:00Z"
+    },
+    {
+      "sender": "Mom",
+      "content": "Perfect! Let's do that. We should leave by 9 AM to beat the crowds.",
+      "timestamp": "2025-10-25T18:08:00Z"
+    },
+    {
+      "sender": "Dad",
+      "content": "Sounds good. What about dinner tonight?",
+      "timestamp": "2025-10-25T18:10:00Z"
+    },
+    {
+      "sender": "Mom",
+      "content": "Let's order pizza. The kids can pick whatever toppings they want.",
+      "timestamp": "2025-10-25T18:12:00Z"
+    },
+    {
+      "sender": "Dad",
+      "content": "Deal. I'll place the order in 30 minutes.",
+      "timestamp": "2025-10-25T18:15:00Z"
+    },
+    {
+      "sender": "Mom",
+      "content": "Also, we need to set a new rule - kids home by 6 PM on school nights starting next week.",
+      "timestamp": "2025-10-25T18:20:00Z"
+    },
+    {
+      "sender": "Dad",
+      "content": "Agreed. That's fair.",
+      "timestamp": "2025-10-25T18:22:00Z"
+    },
+    {
+      "sender": "Mom",
+      "content": "Oh and I think we should get the new vacuum cleaner we looked at last week. Our old one is dying.",
+      "timestamp": "2025-10-25T18:25:00Z"
+    },
+    {
+      "sender": "Dad",
+      "content": "Okay, I'll order it this weekend.",
+      "timestamp": "2025-10-25T18:27:00Z"
+    }
+  ],
+  "expectedDecisions": [
+    {
+      "decisionText": "Go to the zoo on Saturday morning, leaving by 9 AM",
+      "category": "activity",
+      "deadline": null
+    },
+    {
+      "decisionText": "Order pizza for dinner tonight",
+      "category": "food",
+      "deadline": null
+    },
+    {
+      "decisionText": "Kids must be home by 6 PM on school nights starting next week",
+      "category": "policy",
+      "deadline": null
+    },
+    {
+      "decisionText": "Purchase new vacuum cleaner this weekend",
+      "category": "purchase",
+      "deadline": "2025-10-29"
+    }
+  ]
+}
