@@ -4,6 +4,20 @@ This document tracks development sessions chronologically. Each entry captures w
 
 ---
 
+## Session: October 24, 2025 (Enter-to-Send in Chat)
+
+**Focus**: Improve chat input UX
+
+### Accomplishments
+
+- Enabled Enter/Return to send messages in `ChatView` by adding `.submitLabel(.send)` and `.onSubmit { sendMessage() }` to the message `TextField`.
+
+### Files Modified
+
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/Views/ChatView.swift`
+
+---
+
 ## Session: October 21, 2025 (iOS Project Restructure & Device Deployment)
 
 **Focus**: Correcting iOS project architecture and deploying to physical device
