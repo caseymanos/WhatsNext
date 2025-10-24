@@ -1,0 +1,76 @@
+{
+  "description": "Sample conversation for testing calendar event extraction",
+  "scenario": "Parent group chat planning school events and activities",
+  "messages": [
+    {
+      "sender": "Sarah",
+      "content": "Hey everyone! Just a reminder that the parent-teacher conferences are next Thursday, November 2nd at 3:30 PM in Room 204.",
+      "timestamp": "2025-10-25T09:15:00Z"
+    },
+    {
+      "sender": "Mike",
+      "content": "Thanks Sarah! Also, don't forget Emma's birthday party is on Saturday November 4th at 2 PM at the park pavilion.",
+      "timestamp": "2025-10-25T09:20:00Z"
+    },
+    {
+      "sender": "Lisa",
+      "content": "Perfect timing! I was about to send out invites. The kids have soccer practice every Tuesday and Thursday at 5 PM starting next week.",
+      "timestamp": "2025-10-25T09:25:00Z"
+    },
+    {
+      "sender": "Sarah",
+      "content": "Oh and the school Fall Festival is on October 31st from 6-8 PM. They need volunteers!",
+      "timestamp": "2025-10-25T09:30:00Z"
+    },
+    {
+      "sender": "Mike",
+      "content": "We should grab coffee sometime soon",
+      "timestamp": "2025-10-25T09:35:00Z"
+    },
+    {
+      "sender": "Lisa",
+      "content": "Definitely! How about next Monday morning at 10 AM at the usual Starbucks?",
+      "timestamp": "2025-10-25T09:40:00Z"
+    }
+  ],
+  "expectedEvents": [
+    {
+      "title": "Parent-Teacher Conference",
+      "date": "2025-11-02",
+      "time": "15:30",
+      "location": "Room 204",
+      "category": "school",
+      "confidence": 0.95
+    },
+    {
+      "title": "Emma's Birthday Party",
+      "date": "2025-11-04",
+      "time": "14:00",
+      "location": "Park Pavilion",
+      "category": "social",
+      "confidence": 0.9
+    },
+    {
+      "title": "Soccer Practice",
+      "date": "2025-10-31",
+      "time": "17:00",
+      "category": "sports",
+      "confidence": 0.85
+    },
+    {
+      "title": "School Fall Festival",
+      "date": "2025-10-31",
+      "time": "18:00",
+      "category": "school",
+      "confidence": 0.9
+    },
+    {
+      "title": "Coffee Meetup",
+      "date": "2025-10-30",
+      "time": "10:00",
+      "location": "Starbucks",
+      "category": "social",
+      "confidence": 0.8
+    }
+  ]
+}

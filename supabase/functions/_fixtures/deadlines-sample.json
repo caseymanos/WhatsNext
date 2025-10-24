@@ -1,0 +1,90 @@
+{
+  "description": "Sample conversation for testing deadline extraction",
+  "scenario": "Parent managing various family deadlines and tasks",
+  "messages": [
+    {
+      "sender": "School",
+      "content": "Reminder: Permission slips for the field trip are due by Friday, October 27th. Please sign and return with your child.",
+      "timestamp": "2025-10-25T08:00:00Z"
+    },
+    {
+      "sender": "Sarah",
+      "content": "Oh no, I almost forgot! Thanks for the reminder.",
+      "timestamp": "2025-10-25T08:05:00Z"
+    },
+    {
+      "sender": "Doctor's Office",
+      "content": "Hi, this is a reminder to refill Jake's prescription by November 1st. You can call or use the patient portal.",
+      "timestamp": "2025-10-25T10:30:00Z"
+    },
+    {
+      "sender": "Sarah",
+      "content": "Need to remember - soccer registration for winter season closes November 15th and it's $150.",
+      "timestamp": "2025-10-25T12:00:00Z"
+    },
+    {
+      "sender": "Bill Pay Alert",
+      "content": "Your electricity bill of $127.50 is due on November 5th.",
+      "timestamp": "2025-10-25T13:00:00Z"
+    },
+    {
+      "sender": "Mike",
+      "content": "Did you winterize the sprinkler system yet? We need to do it before the first freeze, probably by mid-November.",
+      "timestamp": "2025-10-25T15:00:00Z"
+    },
+    {
+      "sender": "Sarah",
+      "content": "Not yet. I'll add it to the list. Also Emma's book report is due Monday.",
+      "timestamp": "2025-10-25T15:05:00Z"
+    },
+    {
+      "sender": "Insurance Company",
+      "content": "Your car insurance renewal documents need to be signed and returned by October 30th to avoid a lapse in coverage.",
+      "timestamp": "2025-10-25T16:00:00Z"
+    }
+  ],
+  "expectedDeadlines": [
+    {
+      "task": "Submit field trip permission slip",
+      "deadline": "2025-10-27",
+      "category": "forms",
+      "priority": "high"
+    },
+    {
+      "task": "Refill Jake's prescription",
+      "deadline": "2025-11-01",
+      "category": "medical",
+      "priority": "high"
+    },
+    {
+      "task": "Register for winter soccer season",
+      "deadline": "2025-11-15",
+      "category": "school",
+      "priority": "medium"
+    },
+    {
+      "task": "Pay electricity bill ($127.50)",
+      "deadline": "2025-11-05",
+      "category": "bills",
+      "priority": "high"
+    },
+    {
+      "task": "Winterize sprinkler system",
+      "deadline": "2025-11-15",
+      "category": "chores",
+      "priority": "medium"
+    },
+    {
+      "task": "Emma's book report",
+      "deadline": "2025-10-30",
+      "category": "school",
+      "priority": "urgent"
+    },
+    {
+      "task": "Sign and return car insurance renewal documents",
+      "deadline": "2025-10-30",
+      "category": "forms",
+      "priority": "urgent"
+    }
+  ]
+}
