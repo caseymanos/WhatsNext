@@ -67,6 +67,10 @@ struct ChatView: View {
                     .cornerRadius(20)
                     .lineLimit(1...5)
                     .focused($isInputFocused)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        sendMessage()
+                    }
                     .onChange(of: messageText) { _, newValue in
                         if !newValue.isEmpty {
                             Task {
