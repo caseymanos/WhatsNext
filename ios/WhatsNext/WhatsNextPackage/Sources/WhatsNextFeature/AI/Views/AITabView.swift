@@ -7,6 +7,7 @@ struct AITabView: View {
     @State private var conversations: [Conversation] = []
     @State private var isLoadingConversations = false
     @State private var selectedFeature: AIFeature = .events
+    @State private var showSyncSettings = false
 
     enum AIFeature: String, CaseIterable {
         case events = "Events"
@@ -38,10 +39,23 @@ struct AITabView: View {
                 featureContent
             }
             .navigationTitle("AI Insights")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showSyncSettings = true
+                    } label: {
+                        Image(systemName: "calendar.badge.gearshape")
+                    }
+                }
+            }
+            .sheet(isPresented: $showSyncSettings) {
+                CalendarSyncSettingsView(viewModel: vm)
+            }
             .task {
                 await loadConversations()
                 if let userId = authViewModel.currentUser?.id {
                     vm.currentUserId = userId
+                    await vm.loadSyncSettings()
                 }
             }
             .refreshable {
