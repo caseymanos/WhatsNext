@@ -2,7 +2,7 @@
 // This file centralizes all imports for Vercel AI SDK, OpenAI, Zod, and Supabase
 
 // AI SDK imports
-export { generateObject, generateText } from 'npm:ai@3.4.29';
+export { generateObject, generateText, tool } from 'npm:ai@3.4.29';
 export { openai } from 'npm:@ai-sdk/openai@1.0.5';
 
 // Zod for schema validation
