@@ -25,6 +25,7 @@ public final class GlobalRealtimeManager: ObservableObject {
     // Services
     private let realtimeService = RealtimeService()
     private let conversationService = ConversationService()
+    private let userService = UserService()
     
     // Store conversations for notification context
     private var conversations: [UUID: Conversation] = [:]
@@ -154,20 +155,37 @@ public final class GlobalRealtimeManager: ObservableObject {
     
     /// Handle incoming message from real-time subscription
     private func handleIncomingMessage(_ message: Message) async {
-        logger.debug("Received message: \(message.id.uuidString) in conversation: \(message.conversationId.uuidString)")
-        
+        logger.info("🔵 Message received: \(message.id.uuidString) in conversation: \(message.conversationId.uuidString)")
+        logger.info("🔵 Conversations registered in cache: \(self.conversations.keys.count)")
+        logger.info("🔵 Conversation IDs: \(self.conversations.keys.map { $0.uuidString }.joined(separator: ", "))")
+
         // Client-side filter: Verify message belongs to user's conversations
-        guard isUserMemberOfConversation(message.conversationId) else {
-            logger.warning("Filtered out message for non-member conversation: \(message.conversationId.uuidString)")
+        let isMember = isUserMemberOfConversation(message.conversationId)
+        logger.info("🔵 Is user member of conversation \(message.conversationId.uuidString)? \(isMember)")
+
+        guard isMember else {
+            logger.warning("❌ FILTERED OUT message for non-member conversation: \(message.conversationId.uuidString)")
             return
         }
-        
+
+        // Fetch sender information for realtime messages (since they don't include joins)
+        var enrichedMessage = message
+        if enrichedMessage.sender == nil {
+            do {
+                let sender = try await userService.fetchUser(userId: message.senderId)
+                enrichedMessage.sender = sender
+                logger.info("🔵 ✅ Fetched sender info: \(sender.displayName ?? sender.username ?? "unknown")")
+            } catch {
+                logger.error("🔵 ❌ Failed to fetch sender: \(error.localizedDescription)")
+            }
+        }
+
         // Broadcast message to all observers
-        logger.debug("[GRM] Broadcasting message -> conv=\(message.conversationId) id=\(message.id)")
-        messagePublisher.send(message)
-        
+        logger.info("🔵 ✅ Broadcasting message to observers -> conv=\(enrichedMessage.conversationId.uuidString) id=\(enrichedMessage.id.uuidString)")
+        messagePublisher.send(enrichedMessage)
+
         // Show notification if appropriate
-        await showAppropriateNotification(for: message)
+        await showAppropriateNotification(for: enrichedMessage)
     }
     
     /// Handle conversation metadata update
@@ -195,54 +213,67 @@ public final class GlobalRealtimeManager: ObservableObject {
     
     /// Show appropriate notification based on app state and current context
     private func showAppropriateNotification(for message: Message) async {
+        logger.info("🟠 Notification check for message: \(message.id.uuidString)")
+
         guard let userId = currentUserId else {
-            logger.debug("No current user - skipping notification")
+            logger.info("🟠 ⏭️ No current user - skipping notification")
             return
         }
-        
+
         // Don't notify for own messages
         guard message.senderId != userId else {
-            logger.debug("Skipping notification for own message: \(message.id.uuidString)")
+            logger.info("🟠 ⏭️ Skipping notification - own message: \(message.id.uuidString)")
             return
         }
-        
+
         // Don't notify if this conversation is currently open
         if currentOpenConversationId == message.conversationId {
-            logger.debug("Skipping notification - conversation \(message.conversationId.uuidString) is currently open")
+            logger.info("🟠 ⏭️ Skipping notification - conversation \(message.conversationId.uuidString) is currently OPEN")
             return
         }
-        
-        // Get conversation for context
-        let conversation = conversations[message.conversationId]
-        let conversationName = getConversationName(for: conversation, currentUserId: userId)
-        let senderName = message.sender?.displayName 
-            ?? message.sender?.username 
+
+        // Get sender name from the enriched message
+        let senderName = message.sender?.displayName
+            ?? message.sender?.username
             ?? "Someone"
+
+        // Get conversation name (use sender name for 1:1, group name for groups)
+        let conversation = conversations[message.conversationId]
+        let conversationName: String
+        if let conv = conversation, conv.isGroup {
+            conversationName = conv.name ?? "Group Chat"
+        } else {
+            // For 1:1, use sender's name as conversation name
+            conversationName = senderName
+        }
+
         let messageContent = message.content ?? "[Media]"
-        
+
         // Check app state
         let appState = UIApplication.shared.applicationState
-        
-        logger.info("Showing notification for message. App state: \(appState.rawValue), conversation open: \(self.currentOpenConversationId?.uuidString ?? "none")")
-        
+        let appStateString = appState == .active ? "active (foreground)" : appState == .background ? "background" : "inactive"
+
+        logger.info("🟠 App state: \(appStateString) (\(appState.rawValue))")
+        logger.info("🟠 Currently open conversation: \(self.currentOpenConversationId?.uuidString ?? "none")")
+
         if appState == .active {
             // App is in foreground - show in-app banner
+            logger.info("🟠 ✅ SHOWING IN-APP BANNER for: \(conversationName)")
             InAppBannerManager.shared.showBanner(
                 conversationId: message.conversationId,
                 conversationName: conversationName,
                 senderName: senderName,
                 messageContent: messageContent
             )
-            logger.debug("Showing in-app banner")
         } else {
             // App is in background or inactive - send local notification
+            logger.info("🟠 ✅ SCHEDULING LOCAL NOTIFICATION for: \(conversationName)")
             await PushNotificationService.shared.scheduleLocalNotification(
                 conversationId: message.conversationId,
                 conversationName: conversationName,
                 senderName: senderName,
                 messageContent: messageContent
             )
-            logger.debug("Scheduled local notification")
         }
     }
     

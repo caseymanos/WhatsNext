@@ -8,6 +8,8 @@ import {
   logUsage,
   verifyConversationAccess,
   fetchMessages,
+  getIncrementalMessages,
+  updateAnalysisTimestamp,
   corsHeaders,
   generateRequestId,
   logRequest,
@@ -73,20 +75,64 @@ serve(async (req) => {
 
     logRequest(requestId, 'rate_check', { count, allowed });
 
-    // Fetch messages
-    const messages = await fetchMessages(supabase, conversationId, {
-      daysBack,
-      limit: 100,
-    });
+    // Fetch messages incrementally (new messages since last analysis + context)
+    const { messages, isIncremental, newCount } = await getIncrementalMessages(
+      supabase,
+      conversationId,
+      'detect-priority',
+      { maxDaysBack: daysBack, contextCount: 2, maxMessages: 100 }
+    );
 
     if (messages.length === 0) {
+      logRequest(requestId, 'no_new_messages', { isIncremental });
+
+      // No new messages, but still return cached priority messages
+      const serviceClient = createServiceClient();
+
+      // Fetch all message IDs for this conversation
+      const { data: conversationMessages } = await supabase
+        .from('messages')
+        .select('id')
+        .eq('conversation_id', conversationId);
+
+      const conversationMessageIds = (conversationMessages || []).map((m: any) => m.id);
+
+      // Fetch ALL cached priority messages
+      const { data: allCachedPriority } = conversationMessageIds.length > 0
+        ? await serviceClient
+            .from('priority_messages')
+            .select('message_id, priority, reason, action_required, dismissed')
+            .eq('dismissed', false)
+            .in('message_id', conversationMessageIds)
+        : { data: [] };
+
+      const allPriorityForResponse = (allCachedPriority || []).map((p: any) => ({
+        messageId: p.message_id,
+        priority: p.priority,
+        reason: p.reason,
+        actionRequired: p.action_required,
+      }));
+
       return new Response(
-        JSON.stringify({ priorityMessages: [] }),
+        JSON.stringify({
+          priorityMessages: allPriorityForResponse,
+          isIncremental,
+          newCount: 0,
+          totalProcessed: 0,
+          stats: {
+            newPriorityDetected: 0,
+            totalPriority: allPriorityForResponse.length
+          }
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
       );
     }
 
-    logRequest(requestId, 'messages_fetched', { count: messages.length });
+    logRequest(requestId, 'messages_fetched', {
+      count: messages.length,
+      newCount,
+      isIncremental
+    });
 
     // Build context for AI with message IDs
     const conversationContext = messages
@@ -183,13 +229,57 @@ Identify and prioritize messages:`,
       }
     }
 
+    // Update analysis timestamp for incremental processing
+    const processedMessageIds = messages.map(m => m.id);
+    await updateAnalysisTimestamp(conversationId, 'detect-priority', processedMessageIds);
+
+    // Fetch all message IDs for this conversation (to filter priority_messages)
+    const { data: conversationMessages } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversationId);
+
+    const conversationMessageIds = (conversationMessages || []).map((m: any) => m.id);
+
+    // Fetch ALL cached priority messages from database to return (new + previously cached)
+    const { data: allCachedPriority } = conversationMessageIds.length > 0
+      ? await serviceClient
+          .from('priority_messages')
+          .select('message_id, priority, reason, action_required, dismissed')
+          .eq('dismissed', false)
+          .in('message_id', conversationMessageIds)
+      : { data: [] };
+
+    // Map cached priority messages to response format
+    const allPriorityForResponse = (allCachedPriority || []).map((p: any) => ({
+      messageId: p.message_id,
+      priority: p.priority,
+      reason: p.reason,
+      actionRequired: p.action_required,
+    }));
+
     // Log usage
     await logUsage(supabase, userId, 'detect-priority');
 
-    logRequest(requestId, 'complete', { priorityCount: priorityMessages.length });
+    logRequest(requestId, 'complete', {
+      newPriorityDetected: priorityMessages.length,
+      totalPriorityReturned: allPriorityForResponse.length,
+      isIncremental,
+      newCount,
+      totalProcessed: messages.length
+    });
 
     return new Response(
-      JSON.stringify({ priorityMessages }),
+      JSON.stringify({
+        priorityMessages: allPriorityForResponse,  // Return ALL priority messages (cached + new)
+        isIncremental,
+        newCount,
+        totalProcessed: messages.length,
+        stats: {
+          newPriorityDetected: priorityMessages.length,
+          totalPriority: allPriorityForResponse.length
+        }
+      }),
       { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
     );
 

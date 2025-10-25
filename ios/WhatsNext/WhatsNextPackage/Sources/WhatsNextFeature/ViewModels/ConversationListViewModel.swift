@@ -225,20 +225,36 @@ public final class ConversationListViewModel: ObservableObject {
     
     /// Handle new message from realtime
     private func handleNewMessage(_ message: Message) async {
-        guard let userId = currentUserId else { return }
-        
+        logger.info("🟢 ConversationListVM received message: \(message.id.uuidString) for conversation: \(message.conversationId.uuidString)")
+
+        guard let userId = currentUserId else {
+            logger.warning("🟢 No current user ID - cannot handle message")
+            return
+        }
+
         // Find the conversation for this message
         if let index = conversations.firstIndex(where: { $0.id == message.conversationId }) {
-            // Update last message
-            conversations[index].lastMessage = message
-            conversations[index].updatedAt = message.createdAt
-            
-            // Move to top
-            let conv = conversations.remove(at: index)
-            conversations.insert(conv, at: 0)
-            
+            logger.info("🟢 ✅ Found conversation in list at index \(index)")
+            logger.info("🟢 Updating lastMessage and moving to top")
+
+            // Get the conversation and update it (structs are value types!)
+            var conv = conversations[index]
+            conv.lastMessage = message
+            conv.updatedAt = message.createdAt
+
+            // Create completely new array to force @Published to fire
+            var updatedConversations = conversations
+            updatedConversations.remove(at: index)
+            updatedConversations.insert(conv, at: 0)
+
+            // Reassign to trigger @Published notification
+            conversations = updatedConversations
+
+            logger.info("🟢 ✅ Conversation list updated successfully - moved from index \(index) to 0")
+
             // Note: Notifications are now handled by GlobalRealtimeManager
         } else {
+            logger.warning("🟢 ❌ Conversation NOT found in list - fetching all conversations")
             // New conversation - refresh list
             await fetchConversations(userId: userId)
         }

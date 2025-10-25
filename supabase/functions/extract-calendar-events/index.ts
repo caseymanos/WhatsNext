@@ -8,6 +8,8 @@ import {
   logUsage,
   verifyConversationAccess,
   fetchMessages,
+  getIncrementalMessages,
+  updateAnalysisTimestamp,
   corsHeaders,
   generateRequestId,
   logRequest,
@@ -76,21 +78,56 @@ serve(async (req) => {
 
     logRequest(requestId, 'rate_check', { count, allowed });
 
-    // Fetch messages
-    const messages = await fetchMessages(supabase, conversationId, {
-      messageIds,
-      daysBack: messageIds ? undefined : daysBack,
-      limit: 100,
-    });
+    // Fetch messages incrementally (new messages since last analysis + context)
+    const { messages, isIncremental, newCount } = await getIncrementalMessages(
+      supabase,
+      conversationId,
+      'extract-calendar-events',
+      { maxDaysBack: daysBack, contextCount: 2, maxMessages: 100 }
+    );
 
     if (messages.length === 0) {
+      logRequest(requestId, 'no_new_messages', { isIncremental });
+
+      // No new messages, but still return cached events
+      const serviceClient = createServiceClient();
+
+      const { data: allCachedEvents } = await serviceClient
+        .from('calendar_events')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('date', { ascending: true });
+
+      const allEventsForResponse = (allCachedEvents || []).map((e: any) => ({
+        title: e.title,
+        date: e.date,
+        time: e.time,
+        location: e.location,
+        description: e.description,
+        category: e.category,
+        confidence: e.confidence,
+      }));
+
       return new Response(
-        JSON.stringify({ events: [] }),
+        JSON.stringify({
+          events: allEventsForResponse,
+          isIncremental,
+          newCount: 0,
+          totalProcessed: 0,
+          stats: {
+            newEventsExtracted: 0,
+            totalEvents: allEventsForResponse.length
+          }
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
       );
     }
 
-    logRequest(requestId, 'messages_fetched', { count: messages.length });
+    logRequest(requestId, 'messages_fetched', {
+      count: messages.length,
+      newCount,
+      isIncremental
+    });
 
     // Build context for AI
     const conversationContext = messages
@@ -136,38 +173,97 @@ Extract all calendar events:`,
     const eventsToStore = extractedEvents.filter(e => e.confidence >= 0.7);
 
     if (eventsToStore.length > 0) {
-      const { data: insertedEvents, error: insertError } = await serviceClient
+      // Check for existing events to prevent duplicates
+      // Deduplicate by conversation_id + title + date + time
+      const { data: existingEvents } = await serviceClient
         .from('calendar_events')
-        .insert(
-          eventsToStore.map(event => ({
-            conversation_id: conversationId,
-            title: event.title,
-            date: event.date,
-            time: event.time || null,
-            location: event.location || null,
-            description: event.description || null,
-            category: event.category,
-            confidence: event.confidence,
-            confirmed: false,
-          }))
+        .select('title, date, time')
+        .eq('conversation_id', conversationId);
+
+      const existingSet = new Set(
+        (existingEvents || []).map((e: any) =>
+          `${e.title}|${e.date}|${e.time || 'null'}`
         )
-        .select();
+      );
 
-      if (insertError) {
-        console.error('Failed to insert events:', insertError);
-        throw new Error('Failed to save calendar events');
+      const newEvents = eventsToStore.filter(event => {
+        const key = `${event.title}|${event.date}|${event.time || 'null'}`;
+        return !existingSet.has(key);
+      });
+
+      if (newEvents.length > 0) {
+        const { data: insertedEvents, error: insertError } = await serviceClient
+          .from('calendar_events')
+          .insert(
+            newEvents.map(event => ({
+              conversation_id: conversationId,
+              title: event.title,
+              date: event.date,
+              time: event.time || null,
+              location: event.location || null,
+              description: event.description || null,
+              category: event.category,
+              confidence: event.confidence,
+              confirmed: false,
+            }))
+          )
+          .select();
+
+        if (insertError) {
+          console.error('Failed to insert events:', insertError);
+          throw new Error('Failed to save calendar events');
+        }
+
+        logRequest(requestId, 'events_stored', { count: insertedEvents?.length || 0 });
+      } else {
+        logRequest(requestId, 'events_stored', { count: 0, note: 'all duplicates' });
       }
-
-      logRequest(requestId, 'events_stored', { count: insertedEvents?.length || 0 });
     }
+
+    // Update analysis timestamp for incremental processing
+    const processedMessageIds = messages.map(m => m.id);
+    await updateAnalysisTimestamp(conversationId, 'extract-calendar-events', processedMessageIds);
+
+    // Fetch ALL cached events from database to return (new + previously cached)
+    const { data: allCachedEvents } = await serviceClient
+      .from('calendar_events')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('date', { ascending: true });
+
+    // Map cached events to the response format
+    const allEventsForResponse = (allCachedEvents || []).map((e: any) => ({
+      title: e.title,
+      date: e.date,
+      time: e.time,
+      location: e.location,
+      description: e.description,
+      category: e.category,
+      confidence: e.confidence,
+    }));
 
     // Log usage
     await logUsage(supabase, userId, 'extract-calendar-events');
 
-    logRequest(requestId, 'complete', { eventsReturned: extractedEvents.length });
+    logRequest(requestId, 'complete', {
+      newEventsExtracted: extractedEvents.length,
+      totalEventsReturned: allEventsForResponse.length,
+      isIncremental,
+      newCount,
+      totalProcessed: messages.length
+    });
 
     return new Response(
-      JSON.stringify({ events: extractedEvents }),
+      JSON.stringify({
+        events: allEventsForResponse,  // Return ALL events (cached + new)
+        isIncremental,
+        newCount,
+        totalProcessed: messages.length,
+        stats: {
+          newEventsExtracted: extractedEvents.length,
+          totalEvents: allEventsForResponse.length
+        }
+      }),
       { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
     );
 

@@ -19,6 +19,19 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            // Offline indicator
+            if !viewModel.isOnline {
+                HStack {
+                    Image(systemName: "wifi.slash")
+                    Text("No connection. Messages will send when online.")
+                        .font(.caption)
+                }
+                .foregroundStyle(.white)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Color.orange)
+            }
+
             // Messages List
             ScrollViewReader { proxy in
                 ScrollView {
@@ -29,9 +42,18 @@ struct ChatView: View {
                                 isCurrentUser: message.senderId == currentUserId,
                                 isOptimistic: viewModel.optimisticMessages[message.localId ?? ""] != nil,
                                 receiptStatus: viewModel.getReceiptStatus(for: message),
+                                syncStatus: viewModel.getSyncStatus(for: message),
                                 isGroupChat: conversation.isGroup,
                                 senderName: getSenderName(for: message),
-                                currentUserId: currentUserId
+                                currentUserId: currentUserId,
+                                readReceipts: message.readReceipts ?? [],
+                                onRetry: {
+                                    if let localId = message.localId {
+                                        Task {
+                                            await viewModel.retryMessage(localId: localId)
+                                        }
+                                    }
+                                }
                             )
                             .id(message.id)
                         }
@@ -173,9 +195,8 @@ struct ChatView: View {
         }
         .task {
             await viewModel.fetchMessages()
-            await viewModel.fetchReadReceipts()
         }
-        .onAppear {
+        .onDisappear {
             Task {
                 await viewModel.markMessagesAsRead()
             }
@@ -253,11 +274,15 @@ struct MessageRow: View {
     let isCurrentUser: Bool
     let isOptimistic: Bool
     let receiptStatus: MessageReceiptStatus
+    let syncStatus: MessageSyncStatus
     let isGroupChat: Bool
     let senderName: String?
     let currentUserId: UUID
+    let readReceipts: [ReadReceipt]
+    let onRetry: () -> Void
 
     @State private var reactions: [MessageReaction] = []
+    @State private var showReadReceiptDetails = false
     private let reactionService = ReactionService()
 
     var body: some View {
@@ -353,23 +378,54 @@ struct MessageRow: View {
                     Text(message.createdAt, style: .time)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    
-                    if isOptimistic {
-                        Image(systemName: "clock")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else if isCurrentUser {
-                        // Show read receipt status
-                        if !receiptStatus.icon.isEmpty {
-                            Image(systemName: receiptStatus.icon)
+
+                    if isCurrentUser {
+                        // Show sync status (sending/failed) or receipt status (sent)
+                        switch syncStatus {
+                        case .sending:
+                            Image(systemName: "clock")
                                 .font(.caption2)
-                                .foregroundStyle(receiptStatus.color == "blue" ? .blue : .secondary)
-                        }
-                        
-                        if case .readBySome(let count) = receiptStatus {
-                            Text("(\(count))")
-                                .font(.caption2)
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(.secondary)
+
+                        case .failed:
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.red)
+
+                                Button {
+                                    onRetry()
+                                } label: {
+                                    Text("Retry")
+                                        .font(.caption2)
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+
+                        case .sent:
+                            // Show read receipt status for sent messages
+                            if !receiptStatus.icon.isEmpty {
+                                Button {
+                                    showReadReceiptDetails.toggle()
+                                } label: {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: receiptStatus.icon)
+                                            .font(.caption2)
+                                            .foregroundStyle(receiptStatus.color == "blue" ? .blue : .secondary)
+
+                                        if case .readBySome(let count) = receiptStatus {
+                                            Text("(\(count))")
+                                                .font(.caption2)
+                                                .foregroundStyle(.blue)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .popover(isPresented: $showReadReceiptDetails) {
+                                    ReadReceiptDetailsView(readReceipts: readReceipts)
+                                        .presentationCompactAdaptation(.popover)
+                                }
+                            }
                         }
                     }
                 }
@@ -461,7 +517,7 @@ struct ReactionBubble: View {
 
 struct TypingIndicatorView: View {
     @State private var animating = false
-    
+
     var body: some View {
         HStack(spacing: 4) {
             ForEach(0..<3) { index in
@@ -480,6 +536,36 @@ struct TypingIndicatorView: View {
         .onAppear {
             animating = true
         }
+    }
+}
+
+struct ReadReceiptDetailsView: View {
+    let readReceipts: [ReadReceipt]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if readReceipts.isEmpty {
+                Text("Not read yet")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding()
+            } else {
+                ForEach(readReceipts) { receipt in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Read")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(receipt.readAt, style: .date)
+                            .font(.caption)
+                        Text(receipt.readAt, style: .time)
+                            .font(.caption)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+            }
+        }
+        .frame(minWidth: 150)
     }
 }
 

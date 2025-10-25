@@ -27,7 +27,9 @@ public struct Conversation: Codable, Identifiable, Equatable, Hashable {
     }
 
     public static func == (lhs: Conversation, rhs: Conversation) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id &&
+        lhs.updatedAt == rhs.updatedAt &&
+        lhs.lastMessage?.id == rhs.lastMessage?.id
     }
     
     public init(id: UUID, name: String? = nil, avatarUrl: String? = nil, isGroup: Bool, createdAt: Date, updatedAt: Date, participants: [User]? = nil, lastMessage: Message? = nil, unreadCount: Int? = nil) {

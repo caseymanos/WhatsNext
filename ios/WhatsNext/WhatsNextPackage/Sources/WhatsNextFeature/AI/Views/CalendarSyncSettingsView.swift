@@ -9,6 +9,11 @@ struct CalendarSyncSettingsView: View {
     @State private var errorMessage: String?
     @State private var showPermissionAlert = false
     @State private var permissionType: PermissionType = .calendar
+    @State private var isConnectingGoogle = false
+    @State private var showCalendarPicker = false
+    @State private var availableGoogleCalendars: [GoogleCalendar] = []
+    @State private var showCategoryPicker = false
+    @State private var selectedCategory: String?
 
     enum PermissionType {
         case calendar, reminders
@@ -46,6 +51,36 @@ struct CalendarSyncSettingsView: View {
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("Please enable \(permissionType == .calendar ? "Calendar" : "Reminders") access in Settings to sync \(permissionType == .calendar ? "events" : "tasks").")
+            }
+            .sheet(isPresented: $showCalendarPicker) {
+                if let credentials = settings.flatMap({ s in
+                    guard let token = s.googleAccessToken,
+                          let refresh = s.googleRefreshToken,
+                          let expiry = s.googleTokenExpiry else { return nil }
+                    return GoogleOAuthCredentials(
+                        accessToken: token,
+                        refreshToken: refresh,
+                        expiresAt: expiry,
+                        scope: "https://www.googleapis.com/auth/calendar"
+                    )
+                }) {
+                    GoogleCalendarPickerView(calendars: availableGoogleCalendars) { calendarId in
+                        Task {
+                            await saveGoogleCredentials(credentials: credentials, calendarId: calendarId)
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $showCategoryPicker) {
+                if let category = selectedCategory {
+                    CategoryCalendarPickerView(
+                        category: category,
+                        currentMapping: settings?.categoryCalendarMapping[category],
+                        onSelect: { calendarName in
+                            updateCategoryMapping(category: category, calendarName: calendarName)
+                        }
+                    )
+                }
             }
         }
     }
@@ -140,16 +175,43 @@ struct CalendarSyncSettingsView: View {
 
                 if settings.googleCalendarEnabled {
                     if settings.isGoogleCalendarConfigured {
-                        Label("Connected", systemImage: "checkmark.circle.fill")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Connected", systemImage: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+
+                            if let calendarId = settings.googleCalendarId {
+                                Text("Calendar: \(calendarId)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Button("Change Calendar") {
+                                showCalendarPicker = true
+                            }
                             .font(.caption)
-                            .foregroundStyle(.green)
+
+                            Button("Disconnect", role: .destructive) {
+                                disconnectGoogleCalendar()
+                            }
+                            .font(.caption)
+                        }
                     } else {
                         Button {
-                            // TODO: Implement Google OAuth
-                            errorMessage = "Google Calendar setup coming soon"
+                            Task {
+                                await connectGoogleCalendar()
+                            }
                         } label: {
-                            Label("Connect Google Calendar", systemImage: "link")
+                            if isConnectingGoogle {
+                                HStack {
+                                    ProgressView()
+                                    Text("Connecting...")
+                                }
+                            } else {
+                                Label("Connect Google Calendar", systemImage: "link")
+                            }
                         }
+                        .disabled(isConnectingGoogle)
                     }
                 }
             } header: {
@@ -261,10 +323,14 @@ struct CalendarSyncSettingsView: View {
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            // TODO: Navigate to calendar picker
-            errorMessage = "Calendar picker coming soon"
-        }
+            selectedCategory = category
+            showCategoryPicker = true
+            selectedCategory = category
+            showCategoryPicker = true
+            selectedCategory = category
+            showCategoryPicker = true
+            selectedCategory = category
+            showCategoryPicker = true
     }
 
     private var errorView: some View {
@@ -313,7 +379,8 @@ struct CalendarSyncSettingsView: View {
 
     private func requestCalendarPermission(onSuccess: @escaping () -> Void) async {
         let permissionService = CalendarPermissionService.shared
-        guard !await permissionService.isCalendarAuthorized else {
+        let isAuthorized = await permissionService.isCalendarAuthorized
+        guard !isAuthorized else {
             onSuccess()
             return
         }
@@ -334,7 +401,8 @@ struct CalendarSyncSettingsView: View {
 
     private func requestRemindersPermission(onSuccess: @escaping () -> Void) async {
         let permissionService = CalendarPermissionService.shared
-        guard !await permissionService.isRemindersAuthorized else {
+        let isAuthorized = await permissionService.isRemindersAuthorized
+        guard !isAuthorized else {
             onSuccess()
             return
         }
@@ -350,6 +418,267 @@ struct CalendarSyncSettingsView: View {
         } catch {
             permissionType = .reminders
             showPermissionAlert = true
+        }
+    }
+
+    // MARK: - Google Calendar Connection
+
+    private func connectGoogleCalendar() async {
+        isConnectingGoogle = true
+        defer { isConnectingGoogle = false }
+        errorMessage = nil
+
+        do {
+            let googleAuthService = GoogleAuthService()
+
+            // Request Calendar OAuth
+            let credentials = try await googleAuthService.authorizeGoogleCalendar()
+
+            // Fetch available calendars
+            availableGoogleCalendars = try await googleAuthService.listGoogleCalendars(credentials: credentials)
+
+            // If only one writable calendar, use it automatically
+            let writableCalendars = availableGoogleCalendars.filter { $0.canWrite }
+            if let primaryCalendar = writableCalendars.first(where: { $0.primary }) ?? writableCalendars.first {
+                await saveGoogleCredentials(credentials: credentials, calendarId: primaryCalendar.id)
+            } else {
+                // Show picker if multiple calendars
+                showCalendarPicker = true
+            }
+        } catch {
+            errorMessage = "Failed to connect Google Calendar: \(error.localizedDescription)"
+        }
+    }
+
+    private func saveGoogleCredentials(credentials: GoogleOAuthCredentials, calendarId: String) async {
+        guard var currentSettings = settings else { return }
+
+        currentSettings.googleCalendarId = calendarId
+        currentSettings.googleAccessToken = credentials.accessToken
+        currentSettings.googleRefreshToken = credentials.refreshToken
+        currentSettings.googleTokenExpiry = credentials.expiresAt
+
+        settings = currentSettings
+
+        do {
+            try await viewModel.updateSyncSettings(currentSettings)
+        } catch {
+            errorMessage = "Failed to save Google Calendar settings: \(error.localizedDescription)"
+        }
+    }
+
+    private func disconnectGoogleCalendar() {
+        guard var currentSettings = settings else { return }
+
+        currentSettings.googleCalendarId = nil
+        currentSettings.googleAccessToken = nil
+        currentSettings.googleRefreshToken = nil
+        currentSettings.googleTokenExpiry = nil
+
+        settings = currentSettings
+
+        Task {
+            do {
+                try await viewModel.updateSyncSettings(currentSettings)
+            } catch {
+                errorMessage = "Failed to disconnect: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func updateCategoryMapping(category: String, calendarName: String?) {
+        guard var currentSettings = settings else { return }
+
+        if let calendarName = calendarName {
+            currentSettings.categoryCalendarMapping[category] = calendarName
+        } else {
+            currentSettings.categoryCalendarMapping.removeValue(forKey: category)
+        }
+
+        settings = currentSettings
+
+        Task {
+            do {
+                try await viewModel.updateSyncSettings(currentSettings)
+            } catch {
+                errorMessage = "Failed to update category mapping: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+// MARK: - Category Calendar Picker
+
+struct CategoryCalendarPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let category: String
+    let currentMapping: String?
+    let onSelect: (String?) -> Void
+
+    @State private var availableCalendars: [String] = []
+    @State private var availableLists: [String] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Loading calendars...")
+                } else {
+                    List {
+                        Section {
+                            Button {
+                                onSelect(nil)
+                                dismiss()
+                            } label: {
+                                HStack {
+                                    Text("Default")
+                                    Spacer()
+                                    if currentMapping == nil {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+                        }
+
+                        if !availableCalendars.isEmpty {
+                            Section("Apple Calendar") {
+                                ForEach(availableCalendars, id: \.self) { calendar in
+                                    Button {
+                                        onSelect(calendar)
+                                        dismiss()
+                                    } label: {
+                                        HStack {
+                                            Text(calendar)
+                                            Spacer()
+                                            if currentMapping == calendar {
+                                                Image(systemName: "checkmark")
+                                                    .foregroundStyle(.blue)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if !availableLists.isEmpty {
+                            Section("Apple Reminders") {
+                                ForEach(availableLists, id: \.self) { list in
+                                    Button {
+                                        onSelect(list)
+                                        dismiss()
+                                    } label: {
+                                        HStack {
+                                            Text(list)
+                                            Spacer()
+                                            if currentMapping == list {
+                                                Image(systemName: "checkmark")
+                                                    .foregroundStyle(.blue)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("\(category.capitalized) Calendar")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .task {
+                await loadCalendarsAndLists()
+            }
+        }
+    }
+
+    private func loadCalendarsAndLists() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        let eventKitService = EventKitService()
+
+        // Load Apple Calendars
+        do {
+            let calendars = try await eventKitService.getAvailableCalendars()
+            availableCalendars = calendars.map { $0.title }
+        } catch {
+            // Permission not granted or error
+        }
+
+        // Load Apple Reminder Lists
+        do {
+            let lists = try await eventKitService.getAvailableReminderLists()
+            availableLists = lists.map { $0.title }
+        } catch {
+            // Permission not granted or error
+        }
+    }
+}
+
+// MARK: - Google Calendar Picker
+
+struct GoogleCalendarPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let calendars: [GoogleCalendar]
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List(calendars) { calendar in
+                Button {
+                    onSelect(calendar.id)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(calendar.summary)
+                            .font(.body)
+                        if let description = calendar.description {
+                            Text(description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            if calendar.primary {
+                                Text("Primary")
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.blue.opacity(0.2))
+                                    .foregroundStyle(.blue)
+                                    .cornerRadius(4)
+                            }
+                            if calendar.canWrite {
+                                Text("Writable")
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.green.opacity(0.2))
+                                    .foregroundStyle(.green)
+                                    .cornerRadius(4)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .disabled(!calendar.canWrite)
+            }
+            .navigationTitle("Select Calendar")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }

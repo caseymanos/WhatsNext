@@ -100,11 +100,17 @@ struct DeadlinesView: View {
     private func deadlineRow(_ deadline: Deadline) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Button {
-                // TODO: Mark as complete
+                Task {
+                    if deadline.status == .pending {
+                        await viewModel.markDeadlineComplete(deadline)
+                    } else {
+                        await viewModel.markDeadlinePending(deadline)
+                    }
+                }
             } label: {
-                Image(systemName: "circle")
+                Image(systemName: deadline.status == .completed ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(deadline.status == .completed ? .green : .blue)
             }
 
             VStack(alignment: .leading, spacing: 6) {

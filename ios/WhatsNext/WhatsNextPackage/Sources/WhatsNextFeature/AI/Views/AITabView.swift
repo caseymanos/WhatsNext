@@ -15,6 +15,7 @@ struct AITabView: View {
         case priority = "Priority"
         case rsvps = "RSVPs"
         case deadlines = "Deadlines"
+        case conflicts = "Conflicts"
         case assistant = "Assistant"
 
         var icon: String {
@@ -24,6 +25,7 @@ struct AITabView: View {
             case .priority: return "exclamationmark.triangle"
             case .rsvps: return "envelope.badge"
             case .deadlines: return "clock.badge"
+            case .conflicts: return "calendar.badge.exclamationmark"
             case .assistant: return "sparkles"
             }
         }
@@ -179,6 +181,13 @@ struct AITabView: View {
             RSVPView(viewModel: vm)
         case .deadlines:
             DeadlinesView(viewModel: vm)
+        case .conflicts:
+            if let firstConv = vm.selectedConversations.first ?? conversations.first?.id {
+                ConflictDetectionView(conversationId: firstConv)
+            } else {
+                Text("Select a conversation to check for conflicts")
+                    .foregroundStyle(.secondary)
+            }
         case .assistant:
             if let firstConv = vm.selectedConversations.first ?? conversations.first?.id {
                 ProactiveAssistantView(viewModel: vm, conversationId: firstConv)

@@ -369,6 +369,78 @@ final class AIViewModel: ObservableObject {
             // Silently fail - this is just a refresh
         }
     }
+
+    // MARK: - Deadline Actions
+
+    /// Mark a deadline as completed
+    func markDeadlineComplete(_ deadline: Deadline) async {
+        do {
+            let supabase = SupabaseClientService.shared
+
+            // Update status to completed
+            try await supabase.database
+                .from("deadlines")
+                .update([
+                    "status": Deadline.DeadlineStatus.completed.rawValue,
+                    "completed_at": Date()
+                ])
+                .eq("id", value: deadline.id)
+                .execute()
+
+            // Update reminder if synced
+            if let reminderId = deadline.appleReminderId {
+                do {
+                    var updatedDeadline = deadline
+                    updatedDeadline.status = .completed
+                    try await EventKitService().updateReminder(reminderId: reminderId, from: updatedDeadline)
+                } catch {
+                    // Silently fail reminder update
+                }
+            }
+
+            // Refresh the deadline list
+            if let conversationId = deadlinesByConversation.first(where: { $0.value.contains(where: { $0.id == deadline.id }) })?.key {
+                await refreshDeadlines(conversationId: conversationId)
+            }
+        } catch {
+            errorMessage = "Failed to mark as complete: \(error.localizedDescription)"
+        }
+    }
+
+    /// Mark a deadline as pending (uncomplete)
+    func markDeadlinePending(_ deadline: Deadline) async {
+        do {
+            let supabase = SupabaseClientService.shared
+
+            // Update status to pending
+            try await supabase.database
+                .from("deadlines")
+                .update([
+                    "status": Deadline.DeadlineStatus.pending.rawValue,
+                    "completed_at": NSNull()
+                ])
+                .eq("id", value: deadline.id)
+                .execute()
+
+            // Update reminder if synced
+            if let reminderId = deadline.appleReminderId {
+                do {
+                    var updatedDeadline = deadline
+                    updatedDeadline.status = .pending
+                    try await EventKitService().updateReminder(reminderId: reminderId, from: updatedDeadline)
+                } catch {
+                    // Silently fail reminder update
+                }
+            }
+
+            // Refresh the deadline list
+            if let conversationId = deadlinesByConversation.first(where: { $0.value.contains(where: { $0.id == deadline.id }) })?.key {
+                await refreshDeadlines(conversationId: conversationId)
+            }
+        } catch {
+            errorMessage = "Failed to mark as pending: \(error.localizedDescription)"
+        }
+    }
 }
 
 #endif
