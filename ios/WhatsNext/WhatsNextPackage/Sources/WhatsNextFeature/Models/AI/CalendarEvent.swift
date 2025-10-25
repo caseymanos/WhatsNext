@@ -17,6 +17,13 @@ public struct CalendarEvent: Codable, Identifiable, Hashable {
     public let createdAt: Date
     public let updatedAt: Date
 
+    // Calendar sync fields
+    public var appleCalendarEventId: String?
+    public var googleCalendarEventId: String?
+    public var syncStatus: String?
+    public var lastSyncAttempt: Date?
+    public var syncError: String?
+
     public enum EventCategory: String, Codable {
         case school
         case medical
@@ -40,6 +47,11 @@ public struct CalendarEvent: Codable, Identifiable, Hashable {
         case confirmed
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case appleCalendarEventId = "apple_calendar_event_id"
+        case googleCalendarEventId = "google_calendar_event_id"
+        case syncStatus = "sync_status"
+        case lastSyncAttempt = "last_sync_attempt"
+        case syncError = "sync_error"
     }
 
     public init(
@@ -55,7 +67,12 @@ public struct CalendarEvent: Codable, Identifiable, Hashable {
         confidence: Double,
         confirmed: Bool = false,
         createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        appleCalendarEventId: String? = nil,
+        googleCalendarEventId: String? = nil,
+        syncStatus: String? = nil,
+        lastSyncAttempt: Date? = nil,
+        syncError: String? = nil
     ) {
         self.id = id
         self.conversationId = conversationId
@@ -70,6 +87,22 @@ public struct CalendarEvent: Codable, Identifiable, Hashable {
         self.confirmed = confirmed
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.appleCalendarEventId = appleCalendarEventId
+        self.googleCalendarEventId = googleCalendarEventId
+        self.syncStatus = syncStatus
+        self.lastSyncAttempt = lastSyncAttempt
+        self.syncError = syncError
+    }
+
+    /// Get parsed sync status enum
+    public var parsedSyncStatus: SyncStatus {
+        guard let statusStr = syncStatus else { return .pending }
+        return SyncStatus(rawValue: statusStr) ?? .pending
+    }
+
+    /// Check if synced to any system
+    public var isSynced: Bool {
+        appleCalendarEventId != nil || googleCalendarEventId != nil
     }
 }
 
