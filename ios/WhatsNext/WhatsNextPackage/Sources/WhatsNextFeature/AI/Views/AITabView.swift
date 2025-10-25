@@ -206,28 +206,47 @@ struct AITabView: View {
     }
 
     private func eventRow(_ event: CalendarEvent) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(event.title).font(.headline)
-            HStack {
-                Text(event.date, style: .date)
-                if let time = event.time {
-                    Text("•")
-                    Text(time)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(event.title).font(.headline)
+                HStack {
+                    Text(event.date, style: .date)
+                    if let time = event.time {
+                        Text("•")
+                        Text(time)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                if let location = event.location {
+                    Label(location, systemImage: "location")
+                        .font(.caption)
+                }
+                if let description = event.description {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            if let location = event.location {
-                Label(location, systemImage: "location")
-                    .font(.caption)
-            }
-            if let description = event.description {
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
+
+            Spacer()
+
+            // Sync status indicator
+            syncStatusBadge(event.parsedSyncStatus)
         }
         .padding(.vertical, 4)
+    }
+
+    private func syncStatusBadge(_ status: SyncStatus) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: status.iconName)
+                .font(.caption)
+            if vm.isSyncing {
+                Text(status.displayName)
+                    .font(.caption2)
+            }
+        }
+        .foregroundStyle(status.color)
     }
 
     private func emptyStateView(icon: String, message: String) -> some View {

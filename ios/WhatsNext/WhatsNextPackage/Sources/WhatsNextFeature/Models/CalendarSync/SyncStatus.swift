@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Sync status for calendar events and reminders
 public enum SyncStatus: String, Codable, CaseIterable {
@@ -6,6 +7,20 @@ public enum SyncStatus: String, Codable, CaseIterable {
     case syncing = "syncing"
     case synced = "synced"
     case failed = "failed"
+
+    /// Short display name
+    public var displayName: String {
+        switch self {
+        case .pending:
+            return "Pending"
+        case .syncing:
+            return "Syncing"
+        case .synced:
+            return "Synced"
+        case .failed:
+            return "Failed"
+        }
+    }
 
     /// Human-readable description
     public var description: String {
@@ -36,16 +51,16 @@ public enum SyncStatus: String, Codable, CaseIterable {
     }
 
     /// Color for UI display
-    public var colorName: String {
+    public var color: Color {
         switch self {
         case .pending:
-            return "gray"
+            return .gray
         case .syncing:
-            return "blue"
+            return .blue
         case .synced:
-            return "green"
+            return .green
         case .failed:
-            return "red"
+            return .red
         }
     }
 }

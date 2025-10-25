@@ -108,8 +108,13 @@ struct DeadlinesView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(deadline.task)
-                    .font(.body)
+                HStack {
+                    Text(deadline.task)
+                        .font(.body)
+                    Spacer()
+                    // Sync status indicator
+                    syncStatusBadge(deadline.parsedSyncStatus)
+                }
 
                 HStack {
                     categoryBadge(deadline.category)
@@ -138,6 +143,18 @@ struct DeadlinesView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func syncStatusBadge(_ status: SyncStatus) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: status.iconName)
+                .font(.caption)
+            if viewModel.isSyncing {
+                Text(status.displayName)
+                    .font(.caption2)
+            }
+        }
+        .foregroundStyle(status.color)
     }
 
     private func categoryBadge(_ category: Deadline.DeadlineCategory) -> some View {
