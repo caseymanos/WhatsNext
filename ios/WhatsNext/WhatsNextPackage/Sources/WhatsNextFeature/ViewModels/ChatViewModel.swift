@@ -16,6 +16,7 @@ public final class ChatViewModel: ObservableObject {
     
     private let messageService = MessageService()
     private let conversationService = ConversationService()
+    private let imageUploadService = ImageUploadService()
     private let globalRealtimeManager = GlobalRealtimeManager.shared
     private var cancellables = Set<AnyCancellable>()
     private var typingTimer: Timer?
@@ -391,6 +392,66 @@ public final class ChatViewModel: ObservableObject {
             messages.insert(contentsOf: olderMessages, at: 0)
         } catch {
             print("Error loading more messages: \(error)")
+        }
+    }
+
+    /// Send photos with optional caption
+    func sendPhotos(_ images: [UIImage], caption: String?) async {
+        guard !images.isEmpty else { return }
+
+        isSending = true
+        errorMessage = nil
+        defer { isSending = false }
+
+        do {
+            // Upload photos in parallel
+            let photoUrls = try await imageUploadService.uploadMessagePhotos(
+                userId: currentUserId,
+                conversationId: conversation.id,
+                images: images
+            )
+
+            // Send a message for each photo
+            for photoUrl in photoUrls {
+                let localId = UUID().uuidString
+
+                // Create optimistic message
+                let optimisticMessage = Message(
+                    id: UUID(),
+                    conversationId: conversation.id,
+                    senderId: currentUserId,
+                    content: caption,
+                    messageType: .image,
+                    mediaUrl: photoUrl,
+                    createdAt: Date(),
+                    updatedAt: nil,
+                    deletedAt: nil,
+                    localId: localId
+                )
+
+                // Add to optimistic messages
+                optimisticMessages[localId] = optimisticMessage
+                messages.append(optimisticMessage)
+
+                // Send to server
+                let sentMessage = try await messageService.sendMediaMessage(
+                    conversationId: conversation.id,
+                    senderId: currentUserId,
+                    messageType: .image,
+                    mediaUrl: photoUrl,
+                    content: caption,
+                    localId: localId
+                )
+
+                // Replace optimistic message with real one
+                optimisticMessages.removeValue(forKey: localId)
+                if let index = messages.firstIndex(where: { $0.localId == localId }) {
+                    messages[index] = sentMessage
+                }
+            }
+        } catch {
+            errorMessage = "Failed to send photos: \(error.localizedDescription)"
+            print("Error sending photos: \(error)")
         }
     }
 }

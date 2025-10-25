@@ -131,35 +131,30 @@ struct ConversationListView: View {
 struct ConversationRow: View {
     let conversation: Conversation
     let currentUserId: UUID
-    @StateObject private var viewModel = ConversationListViewModel()
-    
+
     var body: some View {
         HStack(spacing: 12) {
-            // Avatar
-            Circle()
-                .fill(Color.blue.opacity(0.2))
-                .frame(width: 50, height: 50)
-                .overlay {
-                    Text(displayName.prefix(1).uppercased())
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.blue)
-                }
-            
+            // Avatar with profile picture or initials
+            AvatarView(
+                avatarUrl: avatarUrl,
+                displayName: displayName,
+                size: .medium
+            )
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(displayName)
                         .font(.headline)
-                    
+
                     Spacer()
-                    
+
                     if let lastMessage = conversation.lastMessage {
                         Text(lastMessage.createdAt, formatter: timeFormatter)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-                
+
                 if let lastMessage = conversation.lastMessage {
                     Text(previewText(lastMessage))
                         .font(.subheadline)
@@ -170,11 +165,27 @@ struct ConversationRow: View {
         }
         .padding(.vertical, 4)
     }
-    
+
     private var displayName: String {
-        viewModel.displayName(for: conversation, currentUserId: currentUserId)
+        if conversation.isGroup {
+            return conversation.name ?? "Group Chat"
+        } else {
+            // For 1:1, show other user's name
+            if let otherUser = conversation.participants?.first(where: { $0.id != currentUserId }) {
+                return otherUser.displayName ?? otherUser.username ?? otherUser.email ?? "Unknown User"
+            }
+            return "Direct Message"
+        }
     }
-    
+
+    private var avatarUrl: String? {
+        if conversation.isGroup {
+            return conversation.avatarUrl
+        } else {
+            return conversation.participants?.first(where: { $0.id != currentUserId })?.avatarUrl
+        }
+    }
+
     private func previewText(_ message: Message) -> String {
         if conversation.isGroup, let sender = message.sender?.displayName ?? message.sender?.username {
             return "\(sender): \(message.content ?? "Media")"
@@ -317,10 +328,48 @@ struct ProfileView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @Environment(\.dismiss) var dismiss
     @StateObject private var viewModel = ProfileViewModel()
+    @State private var showImagePicker = false
+    @State private var showImageSourcePicker = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            AvatarView(
+                                avatarUrl: authViewModel.currentUser?.avatarUrl,
+                                displayName: authViewModel.currentUser?.displayName ?? authViewModel.currentUser?.username ?? "U",
+                                size: .xlarge
+                            )
+
+                            Button {
+                                showImageSourcePicker = true
+                            } label: {
+                                Label("Change Photo", systemImage: "camera.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+
+                            if authViewModel.currentUser?.avatarUrl != nil {
+                                Button(role: .destructive) {
+                                    Task {
+                                        await viewModel.deleteAvatar(userId: authViewModel.currentUser?.id)
+                                        await authViewModel.refreshCurrentUser()
+                                    }
+                                } label: {
+                                    Text("Remove Photo")
+                                }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                            }
+                        }
+                        Spacer()
+                    }
+                } header: {
+                    Text("Profile Picture")
+                }
+
                 Section("Account") {
                     if let user = authViewModel.currentUser {
                         LabeledContent("Email", value: user.email ?? "N/A")
@@ -436,6 +485,31 @@ struct ProfileView: View {
                     }
                 }
             }
+            .confirmationDialog("Choose Photo Source", isPresented: $showImageSourcePicker) {
+                Button("Camera") {
+                    viewModel.imageSourceType = .camera
+                    showImagePicker = true
+                }
+                Button("Photo Library") {
+                    viewModel.imageSourceType = .photoLibrary
+                    showImagePicker = true
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .sheet(isPresented: $showImagePicker) {
+                ImagePickerView(
+                    sourceType: viewModel.imageSourceType,
+                    onImagePicked: { image in
+                        Task {
+                            await viewModel.uploadAvatar(
+                                image: image,
+                                userId: authViewModel.currentUser?.id
+                            )
+                            await authViewModel.refreshCurrentUser()
+                        }
+                    }
+                )
+            }
             .onAppear {
                 viewModel.loadUser(authViewModel.currentUser)
             }
@@ -452,8 +526,12 @@ final class ProfileViewModel: ObservableObject {
     @Published var isSaving = false
     @Published var errorMessage: String?
     @Published var saveSuccess = false
+    @Published var isUploadingAvatar = false
+
+    var imageSourceType: ImagePickerView.SourceType = .photoLibrary
 
     private let userService = UserService()
+    private let imageUploadService = ImageUploadService()
     private var checkTask: Task<Void, Never>?
 
     func loadUser(_ user: User?) {
@@ -532,6 +610,36 @@ final class ProfileViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             saveSuccess = false
+        }
+    }
+
+    func uploadAvatar(image: UIImage, userId: UUID?) async {
+        guard let userId = userId else { return }
+
+        isUploadingAvatar = true
+        errorMessage = nil
+        defer { isUploadingAvatar = false }
+
+        do {
+            let avatarUrl = try await imageUploadService.uploadProfilePicture(userId: userId, image: image)
+            try await userService.updateAvatarUrl(userId: userId, avatarUrl: avatarUrl)
+        } catch {
+            errorMessage = "Failed to upload avatar: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteAvatar(userId: UUID?) async {
+        guard let userId = userId else { return }
+
+        isUploadingAvatar = true
+        errorMessage = nil
+        defer { isUploadingAvatar = false }
+
+        do {
+            try await imageUploadService.deleteProfilePicture(userId: userId)
+            try await userService.updateAvatarUrl(userId: userId, avatarUrl: nil)
+        } catch {
+            errorMessage = "Failed to delete avatar: \(error.localizedDescription)"
         }
     }
 }

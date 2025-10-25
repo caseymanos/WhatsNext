@@ -8,6 +8,8 @@ struct ChatView: View {
     @State private var messageText = ""
     @State private var showGroupSettings = false
     @FocusState private var isInputFocused: Bool
+    @State private var selectedImages: [UIImage] = []
+    @State private var photoCaption = ""
     
     init(conversation: Conversation, currentUserId: UUID) {
         self.conversation = conversation
@@ -28,7 +30,8 @@ struct ChatView: View {
                                 isOptimistic: viewModel.optimisticMessages[message.localId ?? ""] != nil,
                                 receiptStatus: viewModel.getReceiptStatus(for: message),
                                 isGroupChat: conversation.isGroup,
-                                senderName: getSenderName(for: message)
+                                senderName: getSenderName(for: message),
+                                currentUserId: currentUserId
                             )
                             .id(message.id)
                         }
@@ -58,8 +61,51 @@ struct ChatView: View {
                 .padding(.vertical, 8)
             }
             
+            // Photo preview
+            if !selectedImages.isEmpty {
+                VStack(spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(selectedImages.enumerated()), id: \.offset) { index, image in
+                                ZStack(alignment: .topTrailing) {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 80, height: 80)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                    Button {
+                                        selectedImages.remove(at: index)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.white)
+                                            .background(Circle().fill(.black.opacity(0.6)))
+                                    }
+                                    .padding(4)
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+
+                    // Caption field for photos
+                    TextField("Add a caption...", text: $photoCaption, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                        .lineLimit(1...3)
+                        .padding(.horizontal)
+                }
+                .padding(.vertical, 8)
+                .background(Color(.systemBackground))
+            }
+
             // Input Bar
             HStack(spacing: 12) {
+                // Photo button
+                PhotoPickerButton(selectedImages: $selectedImages)
+
                 TextField("Message", text: $messageText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .padding(8)
@@ -78,9 +124,13 @@ struct ChatView: View {
                             }
                         }
                     }
-                
+
                 Button {
-                    sendMessage()
+                    if !selectedImages.isEmpty {
+                        sendPhotoMessage()
+                    } else {
+                        sendMessage()
+                    }
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 32))
@@ -91,9 +141,21 @@ struct ChatView: View {
             .padding()
             .background(Color(.systemBackground))
         }
-        .navigationTitle(conversationName)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 8) {
+                    AvatarView(
+                        avatarUrl: avatarUrl,
+                        displayName: conversationName,
+                        size: .small
+                    )
+                    Text(conversationName)
+                        .font(.headline)
+                }
+            }
+
             if conversation.isGroup {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -118,11 +180,6 @@ struct ChatView: View {
                 await viewModel.markMessagesAsRead()
             }
         }
-        .onDisappear {
-            Task {
-                await viewModel.markMessagesAsRead()
-            }
-        }
     }
     
     private var conversationName: String {
@@ -135,17 +192,40 @@ struct ChatView: View {
             return "Chat"
         }
     }
-    
-    private var canSend: Bool {
-        !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+    private var avatarUrl: String? {
+        if conversation.isGroup {
+            return conversation.avatarUrl
+        } else {
+            return conversation.participants?.first(where: { $0.id != currentUserId })?.avatarUrl
+        }
     }
-    
+
+    private var canSend: Bool {
+        if !selectedImages.isEmpty {
+            return true
+        }
+        return !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func sendMessage() {
         let text = messageText
         messageText = ""
-        
+
         Task {
             await viewModel.sendMessage(text)
+        }
+    }
+
+    private func sendPhotoMessage() {
+        let images = selectedImages
+        let caption = photoCaption.isEmpty ? nil : photoCaption
+
+        selectedImages = []
+        photoCaption = ""
+
+        Task {
+            await viewModel.sendPhotos(images, caption: caption)
         }
     }
     
@@ -175,11 +255,15 @@ struct MessageRow: View {
     let receiptStatus: MessageReceiptStatus
     let isGroupChat: Bool
     let senderName: String?
-    
+    let currentUserId: UUID
+
+    @State private var reactions: [MessageReaction] = []
+    private let reactionService = ReactionService()
+
     var body: some View {
         HStack {
             if isCurrentUser { Spacer() }
-            
+
             VStack(alignment: isCurrentUser ? .trailing : .leading, spacing: 4) {
                 // Show sender name in groups for other users' messages
                 if isGroupChat && !isCurrentUser, let senderName = senderName {
@@ -188,14 +272,82 @@ struct MessageRow: View {
                         .foregroundStyle(senderColor)
                         .padding(.horizontal, 4)
                 }
-                
-                Text(message.content ?? "")
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(isCurrentUser ? Color.blue : Color(.systemGray5))
-                    .foregroundStyle(isCurrentUser ? .white : .primary)
-                    .cornerRadius(16)
+
+                // Photo message
+                if message.messageType == .image {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let mediaUrl = message.mediaUrl, let url = URL(string: mediaUrl) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .empty:
+                                    ProgressView()
+                                        .frame(width: 200, height: 200)
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(maxWidth: 250, maxHeight: 250)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                case .failure:
+                                    Image(systemName: "photo")
+                                        .font(.largeTitle)
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 200, height: 200)
+                                @unknown default:
+                                    EmptyView()
+                                }
+                            }
+                        }
+
+                        // Caption
+                        if let caption = message.content, !caption.isEmpty {
+                            Text(caption)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(isCurrentUser ? Color.blue : Color(.systemGray5))
+                                .foregroundStyle(isCurrentUser ? .white : .primary)
+                                .cornerRadius(16)
+                        }
+                    }
                     .opacity(isOptimistic ? 0.6 : 1.0)
+                } else {
+                    // Text message
+                    Text(message.content ?? "")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(isCurrentUser ? Color.blue : Color(.systemGray5))
+                        .foregroundStyle(isCurrentUser ? .white : .primary)
+                        .cornerRadius(16)
+                        .opacity(isOptimistic ? 0.6 : 1.0)
+                        .contextMenu {
+                            ForEach(MessageReaction.allowedEmojis, id: \.self) { emoji in
+                                Button {
+                                    Task {
+                                        await toggleReaction(emoji: emoji)
+                                    }
+                                } label: {
+                                    Text(emoji)
+                                }
+                            }
+                        }
+                }
+
+                // Display reactions
+                if !reactions.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(groupedReactions, id: \.emoji) { group in
+                            ReactionBubble(
+                                emoji: group.emoji,
+                                count: group.count,
+                                hasUserReacted: group.hasUserReacted
+                            ) {
+                                Task {
+                                    await toggleReaction(emoji: group.emoji)
+                                }
+                            }
+                        }
+                    }
+                }
                 
                 HStack(spacing: 4) {
                     Text(message.createdAt, style: .time)
@@ -225,16 +377,85 @@ struct MessageRow: View {
             
             if !isCurrentUser { Spacer() }
         }
+        .task {
+            await loadReactions()
+        }
     }
-    
+
     // Generate a consistent color for the sender based on their ID
     private var senderColor: Color {
         guard let senderName = senderName else { return .secondary }
-        
+
         let colors: [Color] = [.blue, .purple, .green, .orange, .pink, .teal]
         let hash = abs(senderName.hashValue)
         let index = hash % colors.count
         return colors[index]
+    }
+
+    private var groupedReactions: [GroupedReaction] {
+        let grouped = Dictionary(grouping: reactions, by: { $0.emoji })
+        return grouped.map { emoji, reactions in
+            GroupedReaction(
+                emoji: emoji,
+                count: reactions.count,
+                hasUserReacted: reactions.contains(where: { $0.userId == currentUserId })
+            )
+        }.sorted { $0.emoji < $1.emoji }
+    }
+
+    private func loadReactions() async {
+        do {
+            reactions = try await reactionService.fetchReactions(messageId: message.id)
+        } catch {
+            print("Failed to load reactions: \(error)")
+        }
+    }
+
+    private func toggleReaction(emoji: String) async {
+        do {
+            try await reactionService.toggleReaction(
+                messageId: message.id,
+                userId: currentUserId,
+                emoji: emoji
+            )
+            // Reload reactions after toggle
+            await loadReactions()
+        } catch {
+            print("Failed to toggle reaction: \(error)")
+        }
+    }
+}
+
+struct GroupedReaction {
+    let emoji: String
+    let count: Int
+    let hasUserReacted: Bool
+}
+
+struct ReactionBubble: View {
+    let emoji: String
+    let count: Int
+    let hasUserReacted: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 2) {
+                Text(emoji).font(.caption)
+                if count > 1 {
+                    Text("\(count)").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                hasUserReacted
+                    ? Color.blue.opacity(0.2)
+                    : Color(.systemGray6)
+            )
+            .cornerRadius(10)
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -28,6 +28,10 @@ let package = Package(
             ],
             resources: [
                 .process("Resources")
+            ],
+            swiftSettings: [
+                .define("AI_FEATURES", .when(configuration: .debug)),
+                .define("AI_FEATURES", .when(configuration: .release))
             ]
         ),
         .testTarget(

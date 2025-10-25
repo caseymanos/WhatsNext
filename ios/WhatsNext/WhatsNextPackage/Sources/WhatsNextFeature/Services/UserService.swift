@@ -122,4 +122,21 @@ final class UserService {
             throw UserServiceError.networkError(error)
         }
     }
+
+    /// Update user's avatar URL
+    func updateAvatarUrl(userId: UUID, avatarUrl: String?) async throws {
+        struct AvatarUpdate: Encodable {
+            let avatar_url: String?
+        }
+
+        do {
+            try await supabase.database
+                .from("users")
+                .update(AvatarUpdate(avatar_url: avatarUrl))
+                .eq("id", value: userId)
+                .execute()
+        } catch {
+            throw UserServiceError.updateFailed(error)
+        }
+    }
 }

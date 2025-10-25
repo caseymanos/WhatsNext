@@ -15,6 +15,7 @@ public struct Message: Codable, Identifiable, Equatable, Hashable {
     // Computed/joined fields
     public var sender: User?
     public var readReceipts: [ReadReceipt]?
+    public var reactions: [MessageReaction]?
     
     public enum CodingKeys: String, CodingKey {
         case id
@@ -43,7 +44,8 @@ public struct Message: Codable, Identifiable, Equatable, Hashable {
         deletedAt: Date? = nil,
         localId: String? = nil,
         sender: User? = nil,
-        readReceipts: [ReadReceipt]? = nil
+        readReceipts: [ReadReceipt]? = nil,
+        reactions: [MessageReaction]? = nil
     ) {
         self.id = id
         self.conversationId = conversationId
@@ -57,10 +59,13 @@ public struct Message: Codable, Identifiable, Equatable, Hashable {
         self.localId = localId
         self.sender = sender
         self.readReceipts = readReceipts
+        self.reactions = reactions
     }
     
     public static func == (lhs: Message, rhs: Message) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id &&
+        lhs.readReceipts?.count == rhs.readReceipts?.count &&
+        lhs.reactions?.count == rhs.reactions?.count
     }
 
     public func hash(into hasher: inout Hasher) {

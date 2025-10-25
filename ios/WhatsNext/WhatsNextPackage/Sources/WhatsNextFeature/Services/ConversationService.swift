@@ -5,7 +5,7 @@ public final class ConversationService {
     public init() {}
     private let supabase = SupabaseClientService.shared
     
-    /// Fetch all conversations for the current user
+    /// Fetch all conversations for the current user with participants
     public func fetchConversations(userId: UUID) async throws -> [Conversation] {
         // Fetch conversation IDs user is part of
         let participantRecords: [ConversationParticipant] = try await supabase.database
@@ -14,22 +14,45 @@ public final class ConversationService {
             .eq("user_id", value: userId)
             .execute()
             .value
-        
+
         let conversationIds = participantRecords.map { $0.conversationId }
-        
+
         guard !conversationIds.isEmpty else {
             return []
         }
-        
+
         // Fetch full conversation details
-        let conversations: [Conversation] = try await supabase.database
+        var conversations: [Conversation] = try await supabase.database
             .from("conversations")
             .select()
             .in("id", values: conversationIds)
             .order("updated_at", ascending: false)
             .execute()
             .value
-        
+
+        // Fetch participants for all conversations
+        for index in conversations.indices {
+            let convParticipants: [ConversationParticipant] = try await supabase.database
+                .from("conversation_participants")
+                .select()
+                .eq("conversation_id", value: conversations[index].id)
+                .execute()
+                .value
+
+            let userIds = convParticipants.map { $0.userId }
+
+            if !userIds.isEmpty {
+                let users: [User] = try await supabase.database
+                    .from("users")
+                    .select()
+                    .in("id", values: userIds)
+                    .execute()
+                    .value
+
+                conversations[index].participants = users
+            }
+        }
+
         return conversations
     }
     
