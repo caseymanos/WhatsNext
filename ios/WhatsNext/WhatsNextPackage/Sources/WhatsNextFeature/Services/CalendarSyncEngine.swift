@@ -1,5 +1,6 @@
 import Foundation
 import Supabase
+import OSLog
 
 /// Orchestrates calendar and reminder synchronization between app and external systems
 @MainActor
@@ -8,6 +9,7 @@ final class CalendarSyncEngine {
     private let eventKitService = EventKitService()
     private let googleService = GoogleCalendarService()
     private let permissionService = CalendarPermissionService.shared
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app", category: "CalendarSyncEngine")
 
     // MARK: - Error Handling
 
@@ -489,11 +491,12 @@ final class CalendarSyncEngine {
         status: SyncStatus,
         error: String?
     ) async throws {
+        let now = ISO8601DateFormatter().string(from: Date())
         try await supabase.database
             .from("calendar_events")
             .update([
                 "sync_status": status.rawValue,
-                "last_sync_attempt": Date(),
+                "last_sync_attempt": now,
                 "sync_error": error as Any
             ])
             .eq("id", value: eventId)
@@ -506,11 +509,12 @@ final class CalendarSyncEngine {
         status: SyncStatus,
         error: String?
     ) async throws {
+        let now = ISO8601DateFormatter().string(from: Date())
         try await supabase.database
             .from("deadlines")
             .update([
                 "sync_status": status.rawValue,
-                "last_sync_attempt": Date(),
+                "last_sync_attempt": now,
                 "sync_error": error as Any
             ])
             .eq("id", value: deadlineId)
