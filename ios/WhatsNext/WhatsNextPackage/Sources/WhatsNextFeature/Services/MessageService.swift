@@ -8,7 +8,7 @@ final class MessageService {
     func fetchMessages(conversationId: UUID, limit: Int = 50, before: Date? = nil) async throws -> [Message] {
         var query = supabase.database
             .from("messages")
-            .select()
+            .select("*, sender:users!sender_id(id,email,username,display_name,avatar_url,created_at)")
             .eq("conversation_id", value: conversationId)
             .is("deleted_at", value: nil)
 
@@ -120,7 +120,21 @@ final class MessageService {
             .eq("message_id", value: messageId)
             .execute()
             .value
-        
+
+        return receipts
+    }
+
+    /// Batch fetch read receipts for multiple messages (prevents cascade)
+    func fetchReadReceiptsForMessages(messageIds: [UUID]) async throws -> [ReadReceipt] {
+        guard !messageIds.isEmpty else { return [] }
+
+        let receipts: [ReadReceipt] = try await supabase.database
+            .from("read_receipts")
+            .select()
+            .in("message_id", values: messageIds)
+            .execute()
+            .value
+
         return receipts
     }
     

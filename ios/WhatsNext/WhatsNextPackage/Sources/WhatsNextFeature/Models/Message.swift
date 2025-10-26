@@ -28,7 +28,8 @@ public struct Message: Codable, Identifiable, Equatable, Hashable {
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"
         case localId = "local_id"
-        // sender and readReceipts are computed fields, not decoded
+        case sender  // Now decoded from Supabase join
+        // readReceipts and reactions are not decoded
     }
     
     // Regular initializer for creating messages

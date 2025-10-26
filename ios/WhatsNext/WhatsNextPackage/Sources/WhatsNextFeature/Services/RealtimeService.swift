@@ -12,7 +12,8 @@ final class RealtimeService {
     // Handles both SQL timestamp and ISO8601 formats
     private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // NOTE: Do NOT use .convertFromSnakeCase here - our models have explicit CodingKeys
+        // Using both causes conflicts where the decoder can't find keys
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let string = try container.decode(String.self)
@@ -222,12 +223,29 @@ final class RealtimeService {
             do {
                 for try await update in channel.postgresChange(UpdateAction.self, table: "conversations") {
                     do {
+                        logger.info("🔶 Attempting to decode conversation from realtime")
+                        logger.info("🔶 Raw record keys: \(update.record.keys.sorted())")
+                        logger.info("🔶 Raw record values: \(update.record)")
+
                         let conversation = try update.decodeRecord(as: Conversation.self, decoder: decoder)
-                        logger.info("Received conversation update: \(conversation.id.uuidString)")
+                        logger.info("🔶 ✅ Successfully decoded conversation: \(conversation.id.uuidString)")
                         // Client-side filtering will be done in GlobalRealtimeManager
                         onUpdate(conversation)
+                    } catch let DecodingError.keyNotFound(key, context) {
+                        logger.error("❌ CONV: Missing key '\(key.stringValue)'")
+                        logger.error("❌ CONV Context: \(context.debugDescription)")
+                    } catch let DecodingError.typeMismatch(type, context) {
+                        logger.error("❌ CONV: Type mismatch for '\(type)'")
+                        logger.error("❌ CONV Context: \(context.debugDescription)")
+                    } catch let DecodingError.valueNotFound(type, context) {
+                        logger.error("❌ CONV: Value not found for '\(type)'")
+                        logger.error("❌ CONV Context: \(context.debugDescription)")
+                    } catch let DecodingError.dataCorrupted(context) {
+                        logger.error("❌ CONV: Data corrupted")
+                        logger.error("❌ CONV Context: \(context.debugDescription)")
                     } catch {
-                        logger.error("Failed to decode conversation: \(error.localizedDescription)")
+                        logger.error("❌ Failed to decode conversation: \(error.localizedDescription)")
+                        logger.error("❌ Error type: \(type(of: error))")
                         logger.debug("Raw record: \(update.record)")
                     }
                 }
@@ -272,11 +290,32 @@ final class RealtimeService {
             do {
                 for try await insertion in channel.postgresChange(InsertAction.self, table: "messages") {
                     do {
+                        logger.info("🔷 Attempting to decode message from realtime")
+                        logger.info("🔷 Raw record keys: \(insertion.record.keys.sorted())")
+                        logger.info("🔷 Raw record values: \(insertion.record)")
+
                         let message = try insertion.decodeRecord(as: Message.self, decoder: decoder)
-                        logger.info("Received global message: \(message.id.uuidString) for conversation: \(message.conversationId.uuidString)")
+                        logger.info("🔷 ✅ Successfully decoded message: \(message.id.uuidString) for conversation: \(message.conversationId.uuidString)")
                         onMessage(message)
+                    } catch let DecodingError.keyNotFound(key, context) {
+                        logger.error("❌ Missing key '\(key.stringValue)' in message")
+                        logger.error("❌ Context: \(context.debugDescription)")
+                        logger.error("❌ Coding path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+                    } catch let DecodingError.typeMismatch(type, context) {
+                        logger.error("❌ Type mismatch for type '\(type)' in message")
+                        logger.error("❌ Context: \(context.debugDescription)")
+                        logger.error("❌ Coding path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+                    } catch let DecodingError.valueNotFound(type, context) {
+                        logger.error("❌ Value not found for type '\(type)' in message")
+                        logger.error("❌ Context: \(context.debugDescription)")
+                        logger.error("❌ Coding path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+                    } catch let DecodingError.dataCorrupted(context) {
+                        logger.error("❌ Data corrupted in message")
+                        logger.error("❌ Context: \(context.debugDescription)")
+                        logger.error("❌ Coding path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
                     } catch {
-                        logger.error("Failed to decode global message: \(error.localizedDescription)")
+                        logger.error("❌ Failed to decode global message: \(error.localizedDescription)")
+                        logger.error("❌ Error type: \(type(of: error))")
                         logger.debug("Raw record keys: \(insertion.record.keys)")
                     }
                 }

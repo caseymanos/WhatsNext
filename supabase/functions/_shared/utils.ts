@@ -203,3 +203,143 @@ export function logRequest(
     ...sanitized,
   }));
 }
+
+/**
+ * Fetch messages incrementally based on last analysis time
+ * Returns new messages + context messages for continuity
+ *
+ * @param supabase - Authenticated Supabase client
+ * @param conversationId - UUID of the conversation
+ * @param featureName - Name of the AI feature (e.g., 'extract-calendar-events')
+ * @param options - Configuration options
+ * @returns Object containing messages, incremental flag, and new message count
+ */
+export async function getIncrementalMessages(
+  supabase: SupabaseClient,
+  conversationId: string,
+  featureName: string,
+  options: {
+    maxDaysBack?: number;
+    contextCount?: number;
+    maxMessages?: number;
+  } = {}
+): Promise<{ messages: any[]; isIncremental: boolean; newCount: number }> {
+  const { maxDaysBack = 7, contextCount = 2, maxMessages = 100 } = options;
+
+  // Check conversation's last analysis timestamp
+  const { data: conv, error: convError } = await supabase
+    .from('conversations')
+    .select('ai_last_analysis')
+    .eq('id', conversationId)
+    .single();
+
+  if (convError) {
+    throw new Error(`Failed to fetch conversation: ${convError.message}`);
+  }
+
+  const lastAnalysisStr = conv?.ai_last_analysis?.[featureName];
+
+  if (!lastAnalysisStr) {
+    // First run - fetch all recent messages
+    const messages = await fetchMessages(supabase, conversationId, {
+      daysBack: maxDaysBack,
+      limit: maxMessages
+    });
+    return { messages, isIncremental: false, newCount: messages.length };
+  }
+
+  // Incremental run - fetch new messages since last analysis
+  const { data: newMessages, error: newError } = await supabase
+    .from('messages')
+    .select('id, conversation_id, sender_id, content, message_type, created_at')
+    .eq('conversation_id', conversationId)
+    .gt('created_at', lastAnalysisStr)
+    .order('created_at', { ascending: true })
+    .limit(maxMessages);
+
+  if (newError) {
+    throw new Error(`Failed to fetch new messages: ${newError.message}`);
+  }
+
+  if (!newMessages || newMessages.length === 0) {
+    // No new messages since last analysis
+    return { messages: [], isIncremental: true, newCount: 0 };
+  }
+
+  // Get context messages before the new ones for continuity
+  const { data: contextMessages } = await supabase
+    .from('messages')
+    .select('id, conversation_id, sender_id, content, message_type, created_at')
+    .eq('conversation_id', conversationId)
+    .lt('created_at', newMessages[0].created_at)
+    .order('created_at', { ascending: false })
+    .limit(contextCount);
+
+  // Combine context + new messages in chronological order
+  const allMessages = [...(contextMessages || []).reverse(), ...newMessages];
+
+  return {
+    messages: allMessages,
+    isIncremental: true,
+    newCount: newMessages.length
+  };
+}
+
+/**
+ * Update conversation and message tracking after AI analysis
+ * Should be called after successfully processing and persisting AI results
+ *
+ * @param conversationId - UUID of the conversation
+ * @param featureName - Name of the AI feature (e.g., 'extract-calendar-events')
+ * @param processedMessageIds - Array of message IDs that were processed
+ */
+export async function updateAnalysisTimestamp(
+  conversationId: string,
+  featureName: string,
+  processedMessageIds: string[]
+): Promise<void> {
+  const now = new Date().toISOString();
+  const serviceClient = createServiceClient();
+
+  try {
+    // Get current ai_last_analysis JSONB
+    const { data: current } = await serviceClient
+      .from('conversations')
+      .select('ai_last_analysis')
+      .eq('id', conversationId)
+      .single();
+
+    // Build updated JSONB with new timestamp for this feature
+    const updatedAnalysis = {
+      ...(current?.ai_last_analysis || {}),
+      [featureName]: now
+    };
+
+    // Update conversation's ai_last_analysis
+    const { error: convError } = await serviceClient
+      .from('conversations')
+      .update({ ai_last_analysis: updatedAnalysis })
+      .eq('id', conversationId);
+
+    if (convError) {
+      console.error('Failed to update conversation analysis timestamp:', convError);
+      // Don't throw - this is tracking metadata, shouldn't block the response
+    }
+
+    // Update processed messages with timestamp
+    if (processedMessageIds.length > 0) {
+      const { error: msgError } = await serviceClient
+        .from('messages')
+        .update({ ai_last_processed: now })
+        .in('id', processedMessageIds);
+
+      if (msgError) {
+        console.error('Failed to update message timestamps:', msgError);
+        // Don't throw - this is tracking metadata, shouldn't block the response
+      }
+    }
+  } catch (error) {
+    // Log but don't throw - timestamp updates are best-effort
+    console.error('Error updating analysis timestamps:', error);
+  }
+}

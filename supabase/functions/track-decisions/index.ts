@@ -8,6 +8,8 @@ import {
   logUsage,
   verifyConversationAccess,
   fetchMessages,
+  getIncrementalMessages,
+  updateAnalysisTimestamp,
   corsHeaders,
   generateRequestId,
   logRequest,
@@ -73,20 +75,53 @@ serve(async (req) => {
 
     logRequest(requestId, 'rate_check', { count, allowed });
 
-    // Fetch messages
-    const messages = await fetchMessages(supabase, conversationId, {
-      daysBack,
-      limit: 100,
-    });
+    // Fetch messages incrementally (new messages since last analysis + context)
+    const { messages, isIncremental, newCount } = await getIncrementalMessages(
+      supabase,
+      conversationId,
+      'track-decisions',
+      { maxDaysBack: daysBack, contextCount: 2, maxMessages: 100 }
+    );
 
     if (messages.length === 0) {
+      logRequest(requestId, 'no_new_messages', { isIncremental });
+
+      // No new messages, but still return cached decisions
+      const serviceClient = createServiceClient();
+
+      const { data: allCachedDecisions } = await serviceClient
+        .from('decisions')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: false });
+
+      const allDecisionsForResponse = (allCachedDecisions || []).map((d: any) => ({
+        decisionText: d.decision_text,
+        category: d.category,
+        decidedBy: d.decided_by,
+        deadline: d.deadline,
+      }));
+
       return new Response(
-        JSON.stringify({ decisions: [] }),
+        JSON.stringify({
+          decisions: allDecisionsForResponse,
+          isIncremental,
+          newCount: 0,
+          totalProcessed: 0,
+          stats: {
+            newDecisionsExtracted: 0,
+            totalDecisions: allDecisionsForResponse.length
+          }
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
       );
     }
 
-    logRequest(requestId, 'messages_fetched', { count: messages.length });
+    logRequest(requestId, 'messages_fetched', {
+      count: messages.length,
+      newCount,
+      isIncremental
+    });
 
     // Build context for AI
     const conversationContext = messages
@@ -133,34 +168,87 @@ Extract all decisions made in this conversation:`,
     const serviceClient = createServiceClient();
 
     if (extractedDecisions.length > 0) {
-      const { data: insertedDecisions, error: insertError } = await serviceClient
+      // Check for existing decisions to prevent duplicates
+      // Deduplicate by conversation_id + decision_text
+      const { data: existingDecisions } = await serviceClient
         .from('decisions')
-        .insert(
-          extractedDecisions.map(decision => ({
-            conversation_id: conversationId,
-            decision_text: decision.decisionText,
-            category: decision.category,
-            decided_by: null, // Will need user mapping logic in production
-            deadline: decision.deadline || null,
-          }))
-        )
-        .select();
+        .select('decision_text')
+        .eq('conversation_id', conversationId);
 
-      if (insertError) {
-        console.error('Failed to insert decisions:', insertError);
-        throw new Error('Failed to save decisions');
+      const existingSet = new Set(
+        (existingDecisions || []).map((d: any) => d.decision_text)
+      );
+
+      const newDecisions = extractedDecisions.filter(
+        decision => !existingSet.has(decision.decisionText)
+      );
+
+      if (newDecisions.length > 0) {
+        const { data: insertedDecisions, error: insertError } = await serviceClient
+          .from('decisions')
+          .insert(
+            newDecisions.map(decision => ({
+              conversation_id: conversationId,
+              decision_text: decision.decisionText,
+              category: decision.category,
+              decided_by: null, // Will need user mapping logic in production
+              deadline: decision.deadline || null,
+            }))
+          )
+          .select();
+
+        if (insertError) {
+          console.error('Failed to insert decisions:', insertError);
+          throw new Error('Failed to save decisions');
+        }
+
+        logRequest(requestId, 'decisions_stored', { count: insertedDecisions?.length || 0 });
+      } else {
+        logRequest(requestId, 'decisions_stored', { count: 0, note: 'all duplicates' });
       }
-
-      logRequest(requestId, 'decisions_stored', { count: insertedDecisions?.length || 0 });
     }
+
+    // Update analysis timestamp for incremental processing
+    const processedMessageIds = messages.map(m => m.id);
+    await updateAnalysisTimestamp(conversationId, 'track-decisions', processedMessageIds);
+
+    // Fetch ALL cached decisions from database to return (new + previously cached)
+    const { data: allCachedDecisions } = await serviceClient
+      .from('decisions')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false });
+
+    // Map cached decisions to the response format
+    const allDecisionsForResponse = (allCachedDecisions || []).map((d: any) => ({
+      decisionText: d.decision_text,
+      category: d.category,
+      decidedBy: d.decided_by,
+      deadline: d.deadline,
+    }));
 
     // Log usage
     await logUsage(supabase, userId, 'track-decisions');
 
-    logRequest(requestId, 'complete', { decisionsReturned: extractedDecisions.length });
+    logRequest(requestId, 'complete', {
+      newDecisionsExtracted: extractedDecisions.length,
+      totalDecisionsReturned: allDecisionsForResponse.length,
+      isIncremental,
+      newCount,
+      totalProcessed: messages.length
+    });
 
     return new Response(
-      JSON.stringify({ decisions: extractedDecisions }),
+      JSON.stringify({
+        decisions: allDecisionsForResponse,  // Return ALL decisions (cached + new)
+        isIncremental,
+        newCount,
+        totalProcessed: messages.length,
+        stats: {
+          newDecisionsExtracted: extractedDecisions.length,
+          totalDecisions: allDecisionsForResponse.length
+        }
+      }),
       { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
     );
 

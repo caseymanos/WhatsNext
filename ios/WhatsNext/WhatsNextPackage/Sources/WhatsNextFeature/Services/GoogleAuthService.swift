@@ -146,4 +146,94 @@ final class GoogleAuthService {
     func signOut() {
         GIDSignIn.sharedInstance.signOut()
     }
+
+    // MARK: - Google Calendar OAuth
+
+    /// Request Google Calendar access with proper scopes
+    func authorizeGoogleCalendar() async throws -> GoogleOAuthCredentials {
+        print("🔵 Requesting Google Calendar authorization")
+
+        // Configure Google Sign In
+        let config = GIDConfiguration(clientID: clientID, serverClientID: serverClientID)
+        GIDSignIn.sharedInstance.configuration = config
+
+        // Get the presenting view controller
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootViewController = windowScene.windows.first?.rootViewController else {
+            print("   ❌ No root view controller found")
+            throw AuthError.unknown(NSError(domain: "GoogleAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "No root view controller"]))
+        }
+
+        // Request calendar scope
+        let calendarScope = "https://www.googleapis.com/auth/calendar"
+        print("   Requesting scope: \(calendarScope)")
+
+        // Check if user is already signed in
+        if let currentUser = GIDSignIn.sharedInstance.currentUser {
+            print("   User already signed in, requesting additional scopes")
+
+            // Check if we already have the calendar scope
+            if currentUser.grantedScopes?.contains(calendarScope) == true {
+                print("   ✅ Calendar scope already granted")
+                return try extractCredentials(from: currentUser)
+            }
+
+            // Request additional scopes
+            do {
+                let result = try await currentUser.addScopes([calendarScope], presenting: rootViewController)
+                print("   ✅ Additional scopes granted")
+                return try extractCredentials(from: result.user)
+            } catch {
+                print("   ❌ Failed to add scopes: \(error.localizedDescription)")
+                throw AuthError.unknown(error)
+            }
+        } else {
+            print("   No user signed in, performing full sign in with calendar scope")
+
+            // Sign in with calendar scope
+            let result: GIDSignInResult
+            do {
+                result = try await GIDSignIn.sharedInstance.signIn(
+                    withPresenting: rootViewController,
+                    hint: nil,
+                    additionalScopes: [calendarScope]
+                )
+                print("   ✅ User signed in with calendar scope")
+                return try extractCredentials(from: result.user)
+            } catch {
+                print("   ❌ Google Calendar authorization failed: \(error.localizedDescription)")
+                throw AuthError.unknown(error)
+            }
+        }
+    }
+
+    /// Extract credentials from Google user
+    private func extractCredentials(from user: GIDGoogleUser) throws -> GoogleOAuthCredentials {
+        let accessToken = user.accessToken.tokenString
+        let refreshToken = user.refreshToken.tokenString
+
+        guard let expirationDate = user.accessToken.expirationDate else {
+            throw AuthError.unknown(NSError(domain: "GoogleAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "No expiration date"]))
+        }
+
+        let scope = user.grantedScopes?.joined(separator: " ") ?? "https://www.googleapis.com/auth/calendar"
+
+        print("   Access token (first 20 chars): \(String(accessToken.prefix(20)))...")
+        print("   Refresh token (first 20 chars): \(String(refreshToken.prefix(20)))...")
+        print("   Expires at: \(expirationDate)")
+        print("   Scopes: \(scope)")
+
+        return GoogleOAuthCredentials(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresAt: expirationDate,
+            scope: scope
+        )
+    }
+
+    /// List available calendars for the user
+    func listGoogleCalendars(credentials: GoogleOAuthCredentials) async throws -> [GoogleCalendar] {
+        let googleService = GoogleCalendarService()
+        return try await googleService.listCalendars(credentials: credentials)
+    }
 }

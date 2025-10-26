@@ -4,6 +4,66 @@ This document tracks development sessions chronologically. Each entry captures w
 
 ---
 
+## Session: October 26, 2025 (PR #5 & #6 - Conflict Detection & Calendar Sync)
+
+**Focus**: Merge conflict detection backend (PR #6) and complete calendar sync integration (PR #5)
+
+### Accomplishments
+
+**PR #6 - Conflict Detection Backend** ✅
+- Reviewed and tested AI-powered conflict detection system
+- Backend edge function `detect-conflicts-agent` using GPT-4o with 8 specialized tools
+- All 114 iOS tests passing
+- Successfully merged to main
+
+**PR #5 - Calendar Sync Integration** ✅
+- Fixed compilation errors across 6 files:
+  - `CalendarPermissionService` - Converted UIKit to SwiftUI pattern
+  - `AIViewModel` - Fixed Date to ISO8601 string conversions
+  - `CalendarSyncEngine` - Added missing logger, fixed switch cases, fixed nil filters
+  - `GoogleAuthService` - Updated for Google Sign-In SDK API changes
+  - `ConflictDetectionService` - Updated to Supabase v2 API
+  - `CalendarSyncSettingsView` - Fixed type inference and malformed function
+- Implemented conflict detection UI from IOS_INTEGRATION_GUIDE.md:
+  - Created `ConflictDetectionView` (248 lines) with full conflict display and resolution UI
+  - Fixed `AITabView` to handle `.conflicts` case
+- Restored 7 deleted documentation files
+- Removed IDE-specific files (`.cursor/plans/`) and added to `.gitignore`
+- All 114 iOS tests passing
+
+### Files Modified
+
+**New Files:**
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/AI/Views/ConflictDetectionView.swift`
+
+**Modified Files:**
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/AI/Views/AITabView.swift`
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/AI/Views/CalendarSyncSettingsView.swift`
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/Services/CalendarPermissionService.swift`
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/AI/ViewModels/AIViewModel.swift`
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/Services/CalendarSyncEngine.swift`
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/Services/GoogleAuthService.swift`
+- `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/Services/ConflictDetectionService.swift`
+- `.gitignore`
+
+**Restored Documentation:**
+- `docs/BUGFIXES-2025-10-22.md`
+- `docs/Local-Notifications-Implementation.md`
+- `docs/READ-RECEIPTS-RACE-CONDITION-FIX.md`
+- `docs/READ-RECEIPTS-REALTIME-FIX.md`
+- `docs/REALTIME-FILTERS-FIX-2025-10-23.md`
+- `docs/REALTIME-FIXES-SUMMARY.md`
+- `docs/REALTIME-TESTING-GUIDE.md`
+
+### Technical Challenges
+
+- Supabase v2 API migration for function invocations
+- Swift 6 strict concurrency - required explicit `self` in closures
+- Google Sign-In SDK API changes - extracting `.user` from `GIDSignInResult`
+- Type inference in flatMap closures requiring explicit type annotations
+
+---
+
 ## Session: October 24, 2025 (Enter-to-Send in Chat)
 
 **Focus**: Improve chat input UX

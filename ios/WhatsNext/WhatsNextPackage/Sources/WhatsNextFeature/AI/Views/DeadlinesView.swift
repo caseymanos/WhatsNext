@@ -100,16 +100,27 @@ struct DeadlinesView: View {
     private func deadlineRow(_ deadline: Deadline) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Button {
-                // TODO: Mark as complete
+                Task {
+                    if deadline.status == .pending {
+                        await viewModel.markDeadlineComplete(deadline)
+                    } else {
+                        await viewModel.markDeadlinePending(deadline)
+                    }
+                }
             } label: {
-                Image(systemName: "circle")
+                Image(systemName: deadline.status == .completed ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(deadline.status == .completed ? .green : .blue)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(deadline.task)
-                    .font(.body)
+                HStack {
+                    Text(deadline.task)
+                        .font(.body)
+                    Spacer()
+                    // Sync status indicator
+                    syncStatusBadge(deadline.parsedSyncStatus)
+                }
 
                 HStack {
                     categoryBadge(deadline.category)
@@ -138,6 +149,18 @@ struct DeadlinesView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func syncStatusBadge(_ status: SyncStatus) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: status.iconName)
+                .font(.caption)
+            if viewModel.isSyncing {
+                Text(status.displayName)
+                    .font(.caption2)
+            }
+        }
+        .foregroundStyle(status.color)
     }
 
     private func categoryBadge(_ category: Deadline.DeadlineCategory) -> some View {

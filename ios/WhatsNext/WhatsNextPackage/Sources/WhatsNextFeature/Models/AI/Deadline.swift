@@ -16,6 +16,12 @@ public struct Deadline: Codable, Identifiable, Hashable {
     public let createdAt: Date
     public let completedAt: Date?
 
+    // Reminder sync fields
+    public var appleReminderId: String?
+    public var syncStatus: String?
+    public var lastSyncAttempt: Date?
+    public var syncError: String?
+
     public enum DeadlineCategory: String, Codable {
         case school
         case bills
@@ -61,6 +67,10 @@ public struct Deadline: Codable, Identifiable, Hashable {
         case status
         case createdAt = "created_at"
         case completedAt = "completed_at"
+        case appleReminderId = "apple_reminder_id"
+        case syncStatus = "sync_status"
+        case lastSyncAttempt = "last_sync_attempt"
+        case syncError = "sync_error"
     }
 
     public init(
@@ -75,7 +85,11 @@ public struct Deadline: Codable, Identifiable, Hashable {
         details: String? = nil,
         status: DeadlineStatus = .pending,
         createdAt: Date = Date(),
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        appleReminderId: String? = nil,
+        syncStatus: String? = nil,
+        lastSyncAttempt: Date? = nil,
+        syncError: String? = nil
     ) {
         self.id = id
         self.messageId = messageId
@@ -89,6 +103,21 @@ public struct Deadline: Codable, Identifiable, Hashable {
         self.status = status
         self.createdAt = createdAt
         self.completedAt = completedAt
+        self.appleReminderId = appleReminderId
+        self.syncStatus = syncStatus
+        self.lastSyncAttempt = lastSyncAttempt
+        self.syncError = syncError
+    }
+
+    /// Get parsed sync status enum
+    public var parsedSyncStatus: SyncStatus {
+        guard let statusStr = syncStatus else { return .pending }
+        return SyncStatus(rawValue: statusStr) ?? .pending
+    }
+
+    /// Check if synced to Apple Reminders
+    public var isSynced: Bool {
+        appleReminderId != nil
     }
 }
 

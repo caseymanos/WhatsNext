@@ -7,6 +7,7 @@ struct AITabView: View {
     @State private var conversations: [Conversation] = []
     @State private var isLoadingConversations = false
     @State private var selectedFeature: AIFeature = .events
+    @State private var showSyncSettings = false
 
     enum AIFeature: String, CaseIterable {
         case events = "Events"
@@ -14,6 +15,7 @@ struct AITabView: View {
         case priority = "Priority"
         case rsvps = "RSVPs"
         case deadlines = "Deadlines"
+        case conflicts = "Conflicts"
         case assistant = "Assistant"
 
         var icon: String {
@@ -23,6 +25,7 @@ struct AITabView: View {
             case .priority: return "exclamationmark.triangle"
             case .rsvps: return "envelope.badge"
             case .deadlines: return "clock.badge"
+            case .conflicts: return "calendar.badge.exclamationmark"
             case .assistant: return "sparkles"
             }
         }
@@ -38,10 +41,23 @@ struct AITabView: View {
                 featureContent
             }
             .navigationTitle("AI Insights")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showSyncSettings = true
+                    } label: {
+                        Image(systemName: "calendar.badge.gearshape")
+                    }
+                }
+            }
+            .sheet(isPresented: $showSyncSettings) {
+                CalendarSyncSettingsView(viewModel: vm)
+            }
             .task {
                 await loadConversations()
                 if let userId = authViewModel.currentUser?.id {
                     vm.currentUserId = userId
+                    await vm.loadSyncSettings()
                 }
             }
             .refreshable {
@@ -165,6 +181,13 @@ struct AITabView: View {
             RSVPView(viewModel: vm)
         case .deadlines:
             DeadlinesView(viewModel: vm)
+        case .conflicts:
+            if let firstConv = vm.selectedConversations.first ?? conversations.first?.id {
+                ConflictDetectionView(conversationId: firstConv)
+            } else {
+                Text("Select a conversation to check for conflicts")
+                    .foregroundStyle(.secondary)
+            }
         case .assistant:
             if let firstConv = vm.selectedConversations.first ?? conversations.first?.id {
                 ProactiveAssistantView(viewModel: vm, conversationId: firstConv)
@@ -206,28 +229,47 @@ struct AITabView: View {
     }
 
     private func eventRow(_ event: CalendarEvent) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(event.title).font(.headline)
-            HStack {
-                Text(event.date, style: .date)
-                if let time = event.time {
-                    Text("•")
-                    Text(time)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(event.title).font(.headline)
+                HStack {
+                    Text(event.date, style: .date)
+                    if let time = event.time {
+                        Text("•")
+                        Text(time)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                if let location = event.location {
+                    Label(location, systemImage: "location")
+                        .font(.caption)
+                }
+                if let description = event.description {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            if let location = event.location {
-                Label(location, systemImage: "location")
-                    .font(.caption)
-            }
-            if let description = event.description {
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
+
+            Spacer()
+
+            // Sync status indicator
+            syncStatusBadge(event.parsedSyncStatus)
         }
         .padding(.vertical, 4)
+    }
+
+    private func syncStatusBadge(_ status: SyncStatus) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: status.iconName)
+                .font(.caption)
+            if vm.isSyncing {
+                Text(status.displayName)
+                    .font(.caption2)
+            }
+        }
+        .foregroundStyle(status.color)
     }
 
     private func emptyStateView(icon: String, message: String) -> some View {
@@ -268,6 +310,9 @@ struct AITabView: View {
             await vm.analyzeSelectedForRSVPs()
         case .deadlines:
             await vm.analyzeSelectedForDeadlines()
+        case .conflicts:
+            // Conflicts are handled by ConflictDetectionView directly
+            break
         case .assistant:
             if let firstConv = vm.selectedConversations.first ?? conversations.first?.id {
                 await vm.runProactiveAssistant(conversationId: firstConv)

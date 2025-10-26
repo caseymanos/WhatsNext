@@ -91,6 +91,12 @@
 	<string>WhatsNext would like access to your contacts to help you find friends on the app.</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>This allows us to provide personalized content and improve your experience.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>WhatsNext syncs AI-detected events from your messages to your calendar automatically.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>WhatsNext needs to create and update calendar events for you.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>WhatsNext creates reminders for deadlines and tasks detected in your conversations.</string>
 
 	<!-- Supabase Configuration (injected from xcconfig) -->
 	<key>SupabaseURL</key>
