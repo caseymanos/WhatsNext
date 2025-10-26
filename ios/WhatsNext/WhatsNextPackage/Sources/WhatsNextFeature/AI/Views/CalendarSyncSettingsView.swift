@@ -449,14 +449,24 @@ struct CalendarSyncSettingsView: View {
     private func saveGoogleCredentials(credentials: GoogleOAuthCredentials, calendarId: String) async {
         guard var currentSettings = settings else { return }
 
-        currentSettings.googleCalendarId = calendarId
-        currentSettings.googleAccessToken = credentials.accessToken
-        currentSettings.googleRefreshToken = credentials.refreshToken
-        currentSettings.googleTokenExpiry = credentials.expiresAt
-
-        settings = currentSettings
-
         do {
+            // Save OAuth tokens to secure Keychain (not database)
+            let keychain = KeychainService.shared
+            try await keychain.saveGoogleTokens(
+                accessToken: credentials.accessToken,
+                refreshToken: credentials.refreshToken,
+                expiresAt: credentials.expiresAt
+            )
+
+            // Only save calendar ID to database (not sensitive)
+            currentSettings.googleCalendarId = calendarId
+            // Remove tokens from settings (no longer stored in database)
+            currentSettings.googleAccessToken = nil
+            currentSettings.googleRefreshToken = nil
+            currentSettings.googleTokenExpiry = nil
+
+            settings = currentSettings
+
             try await viewModel.updateSyncSettings(currentSettings)
         } catch {
             errorMessage = "Failed to save Google Calendar settings: \(error.localizedDescription)"
@@ -466,15 +476,20 @@ struct CalendarSyncSettingsView: View {
     private func disconnectGoogleCalendar() {
         guard var currentSettings = settings else { return }
 
-        currentSettings.googleCalendarId = nil
-        currentSettings.googleAccessToken = nil
-        currentSettings.googleRefreshToken = nil
-        currentSettings.googleTokenExpiry = nil
-
-        settings = currentSettings
-
         Task {
             do {
+                // Delete tokens from Keychain
+                let keychain = KeychainService.shared
+                try await keychain.deleteGoogleTokens()
+
+                // Remove calendar ID from database
+                currentSettings.googleCalendarId = nil
+                currentSettings.googleAccessToken = nil
+                currentSettings.googleRefreshToken = nil
+                currentSettings.googleTokenExpiry = nil
+
+                settings = currentSettings
+
                 try await viewModel.updateSyncSettings(currentSettings)
             } catch {
                 errorMessage = "Failed to disconnect: \(error.localizedDescription)"

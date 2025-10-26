@@ -180,18 +180,21 @@ final class CalendarSyncEngine {
             throw SyncError.googleNotConfigured
         }
 
-        guard let accessToken = settings.googleAccessToken,
-              let refreshToken = settings.googleRefreshToken,
-              let tokenExpiry = settings.googleTokenExpiry,
-              let calendarId = settings.googleCalendarId else {
+        guard let calendarId = settings.googleCalendarId else {
+            throw SyncError.googleNotConfigured
+        }
+
+        // Read OAuth tokens from secure Keychain storage
+        let keychain = KeychainService.shared
+        guard let tokens = try? await keychain.retrieveGoogleTokens() else {
             throw SyncError.googleNotConfigured
         }
 
         // Check and refresh token if needed
         var credentials = GoogleOAuthCredentials(
-            accessToken: accessToken,
-            refreshToken: refreshToken,
-            expiresAt: tokenExpiry,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            expiresAt: tokens.expiresAt,
             scope: "https://www.googleapis.com/auth/calendar"
         )
 
@@ -206,26 +209,18 @@ final class CalendarSyncEngine {
                 // For mobile apps, Google allows refresh without client secret in certain configurations
                 // If this fails, the app needs proper OAuth 2.0 configuration in Google Cloud Console
                 credentials = try await googleService.refreshAccessToken(
-                    refreshToken: refreshToken,
+                    refreshToken: tokens.refreshToken,
                     clientId: clientId,
                     clientSecret: "" // Mobile apps typically don't need this
                 )
 
-                // Update settings with new tokens
-                var updatedSettings = settings
-                updatedSettings.googleAccessToken = credentials.accessToken
-                updatedSettings.googleTokenExpiry = credentials.expiresAt
+                // Update Keychain with new tokens (secure storage)
+                try await keychain.updateGoogleAccessToken(
+                    credentials.accessToken,
+                    expiresAt: credentials.expiresAt
+                )
 
-                try await supabase.database
-                    .from("calendar_sync_settings")
-                    .update([
-                        "google_access_token": credentials.accessToken,
-                        "google_token_expiry": ISO8601DateFormatter().string(from: credentials.expiresAt)
-                    ])
-                    .eq("user_id", value: userId)
-                    .execute()
-
-                logger.info("Successfully refreshed Google access token")
+                logger.info("Successfully refreshed Google access token in Keychain")
             } catch {
                 logger.error("Failed to refresh Google token: \(error.localizedDescription)")
                 throw SyncError.googleNotConfigured

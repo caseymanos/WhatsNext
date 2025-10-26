@@ -91,11 +91,11 @@ public struct CalendarSyncSettings: Codable, Identifiable {
     }
 
     /// Check if Google Calendar is properly configured
+    /// Note: This only checks calendar ID. OAuth tokens are stored securely in Keychain.
     public var isGoogleCalendarConfigured: Bool {
         googleCalendarEnabled &&
-        googleCalendarId != nil &&
-        googleAccessToken != nil &&
-        googleRefreshToken != nil
+        googleCalendarId != nil
+        // OAuth tokens are now in Keychain (not in settings) for security
     }
 
     /// Check if any sync target is enabled

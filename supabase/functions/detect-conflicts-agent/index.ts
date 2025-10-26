@@ -86,7 +86,10 @@ serve(async (req) => {
     // PRE-PROCESSING: Deterministic same-time conflict detection
     // ========================================================================
     // Fetch all events in date range to check for obvious conflicts
-    const { data: allEvents } = await supabase
+    console.log(`[PRE-PROCESSING] Fetching events for conversation: ${conversationId}`);
+    console.log(`[PRE-PROCESSING] Date range: ${startDateStr} to ${endDateStr}`);
+
+    const { data: allEvents, error: fetchError } = await supabase
       .from('calendar_events')
       .select('*')
       .eq('conversation_id', conversationId)
@@ -95,21 +98,43 @@ serve(async (req) => {
       .order('date', { ascending: true })
       .order('time', { ascending: true, nullsFirst: false });
 
+    if (fetchError) {
+      console.error('[PRE-PROCESSING] Error fetching events:', fetchError);
+    }
+
+    console.log(`[PRE-PROCESSING] Fetched ${allEvents?.length || 0} events`);
+    if (allEvents && allEvents.length > 0) {
+      console.log('[PRE-PROCESSING] Events:', JSON.stringify(allEvents.map(e => ({
+        title: e.title,
+        date: e.date,
+        time: e.time
+      }))));
+    }
+
     let preDetectedCount = 0;
     if (allEvents && allEvents.length > 1) {
+      console.log(`[PRE-PROCESSING] Checking ${allEvents.length} events for conflicts...`);
+
       // Check all pairs for exact same-time conflicts
       for (let i = 0; i < allEvents.length; i++) {
         for (let j = i + 1; j < allEvents.length; j++) {
           const event1 = allEvents[i];
           const event2 = allEvents[j];
 
+          console.log(`[PRE-PROCESSING] Comparing: "${event1.title}" (${event1.date} ${event1.time}) vs "${event2.title}" (${event2.date} ${event2.time})`);
+
           // Exact same date and time = urgent conflict
-          if (event1.date === event2.date &&
-              event1.time === event2.time &&
-              event1.time !== null) {
+          const dateMatch = event1.date === event2.date;
+          const timeMatch = event1.time === event2.time;
+          const timeNotNull = event1.time !== null;
+
+          console.log(`[PRE-PROCESSING] Date match: ${dateMatch}, Time match: ${timeMatch}, Time not null: ${timeNotNull}`);
+
+          if (dateMatch && timeMatch && timeNotNull) {
+            console.log(`[PRE-PROCESSING] ⚠️ CONFLICT DETECTED: "${event1.title}" vs "${event2.title}"`);
 
             try {
-              await serviceClient
+              const { error: insertError } = await serviceClient
                 .from('scheduling_conflicts')
                 .insert({
                   conversation_id: conversationId,
@@ -122,15 +147,23 @@ serve(async (req) => {
                   status: 'unresolved'
                 });
 
-              preDetectedCount++;
-              console.log(`Pre-detected conflict: ${event1.title} vs ${event2.title} at ${event1.time}`);
+              if (insertError) {
+                console.error('[PRE-PROCESSING] ❌ Failed to insert conflict:', insertError);
+              } else {
+                preDetectedCount++;
+                console.log(`[PRE-PROCESSING] ✅ Conflict stored successfully`);
+              }
             } catch (error) {
-              console.error('Failed to store pre-detected conflict:', error);
+              console.error('[PRE-PROCESSING] ❌ Exception storing conflict:', error);
             }
           }
         }
       }
+    } else {
+      console.log('[PRE-PROCESSING] Not enough events to check for conflicts');
     }
+
+    console.log(`[PRE-PROCESSING] Total conflicts detected: ${preDetectedCount}`);
 
     logRequest(requestId, 'pre_processing', {
       eventsChecked: allEvents?.length || 0,
