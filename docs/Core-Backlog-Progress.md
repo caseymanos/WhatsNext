@@ -1,6 +1,6 @@
 # Core Backlog Progress
 
-Last updated: 2025-10-22
+Last updated: 2025-10-26
 
 This document tracks progress against the Phase 1 (non‑AI) backlog described in `docs/Core-Implementation-Spec.md`.
 
