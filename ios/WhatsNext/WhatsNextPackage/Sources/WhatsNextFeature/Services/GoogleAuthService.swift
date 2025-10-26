@@ -182,7 +182,7 @@ final class GoogleAuthService {
             do {
                 let result = try await currentUser.addScopes([calendarScope], presenting: rootViewController)
                 print("   ✅ Additional scopes granted")
-                return try extractCredentials(from: result)
+                return try extractCredentials(from: result.user)
             } catch {
                 print("   ❌ Failed to add scopes: \(error.localizedDescription)")
                 throw AuthError.unknown(error)
@@ -209,13 +209,8 @@ final class GoogleAuthService {
 
     /// Extract credentials from Google user
     private func extractCredentials(from user: GIDGoogleUser) throws -> GoogleOAuthCredentials {
-        guard let accessToken = user.accessToken.tokenString else {
-            throw AuthError.unknown(NSError(domain: "GoogleAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "No access token"]))
-        }
-
-        guard let refreshToken = user.refreshToken.tokenString else {
-            throw AuthError.unknown(NSError(domain: "GoogleAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "No refresh token"]))
-        }
+        let accessToken = user.accessToken.tokenString
+        let refreshToken = user.refreshToken.tokenString
 
         guard let expirationDate = user.accessToken.expirationDate else {
             throw AuthError.unknown(NSError(domain: "GoogleAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "No expiration date"]))
