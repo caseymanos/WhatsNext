@@ -389,17 +389,17 @@ final class EventKitService {
         let predicate = eventStore.predicateForReminders(in: lists)
 
         return try await withThrowingTaskGroup(of: [ExternalReminderChange].self) { group in
-            // Add timeout task
+            // Add timeout task (5 seconds to prevent hangs)
             group.addTask {
                 try await Task.sleep(for: .seconds(5))
-                logger.warning("EventKit fetchReminders timed out after 5 seconds")
+                // Timeout reached - return empty array
                 return []
             }
 
             // Add actual fetch task
-            group.addTask {
+            group.addTask { [self] in
                 try await withCheckedThrowingContinuation { continuation in
-                    eventStore.fetchReminders(matching: predicate) { reminders in
+                    self.eventStore.fetchReminders(matching: predicate) { reminders in
                         guard let reminders = reminders else {
                             continuation.resume(returning: [])
                             return

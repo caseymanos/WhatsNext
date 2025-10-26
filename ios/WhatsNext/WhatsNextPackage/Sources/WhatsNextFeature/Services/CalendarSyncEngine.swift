@@ -624,8 +624,8 @@ final class CalendarSyncEngine {
                 try await syncDeadlineToReminders(deadline, userId: userId)
                 successCount += 1
             } catch {
-                logger.error("Failed to sync deadline '\(deadline.title)': \(error.localizedDescription)")
-                errors.append((deadline.id, deadline.title, error.localizedDescription))
+                logger.error("Failed to sync deadline '\(deadline.task)': \(error.localizedDescription)")
+                errors.append((deadline.id, deadline.task, error.localizedDescription))
             }
         }
 
