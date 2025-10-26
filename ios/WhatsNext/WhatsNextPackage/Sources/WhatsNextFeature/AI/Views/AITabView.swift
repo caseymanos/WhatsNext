@@ -38,6 +38,13 @@ struct AITabView: View {
                 Divider()
                 conversationSelectorView
                 Divider()
+
+                // Show conflict notification banner
+                if vm.totalUnresolvedConflictsCount > 0 && selectedFeature != .conflicts {
+                    conflictNotificationBanner
+                    Divider()
+                }
+
                 featureContent
             }
             .navigationTitle("AI Insights")
@@ -88,6 +95,17 @@ struct AITabView: View {
                     .font(.caption)
                 Text(feature.rawValue)
                     .font(.caption.bold())
+
+                // Show badge for unresolved conflicts
+                if feature == .conflicts && vm.totalUnresolvedConflictsCount > 0 {
+                    Text("\(vm.totalUnresolvedConflictsCount)")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.red)
+                        .cornerRadius(10)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -347,6 +365,37 @@ struct AITabView: View {
         let firstName = components[0]
         let lastNameInitial = components[1].prefix(1)
         return "\(firstName) \(lastNameInitial)."
+    }
+
+    private var conflictNotificationBanner: some View {
+        Button {
+            selectedFeature = .conflicts
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Scheduling Conflicts Detected")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                    Text("\(vm.totalUnresolvedConflictsCount) unresolved conflict\(vm.totalUnresolvedConflictsCount == 1 ? "" : "s") found")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.orange.opacity(0.1))
+        }
+        .buttonStyle(.plain)
     }
 }
 
