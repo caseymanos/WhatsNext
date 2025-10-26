@@ -312,7 +312,27 @@ final class AIViewModel: ObservableObject {
         do {
             async let eventsSync = syncEngine.syncAllPendingEvents(userId: userId)
             async let deadlinesSync = syncEngine.syncAllPendingDeadlines(userId: userId)
-            try await (eventsSync, deadlinesSync)
+            let (eventsResult, deadlinesResult) = try await (eventsSync, deadlinesSync)
+
+            // Aggregate results
+            let totalSuccess = eventsResult.successCount + deadlinesResult.successCount
+            let totalFailures = eventsResult.failureCount + deadlinesResult.failureCount
+
+            if totalFailures > 0 {
+                // Show detailed error information
+                var errorDetails = [String]()
+                if !eventsResult.errors.isEmpty {
+                    errorDetails.append("Events: \(eventsResult.errors.count) failed")
+                }
+                if !deadlinesResult.errors.isEmpty {
+                    errorDetails.append("Deadlines: \(deadlinesResult.errors.count) failed")
+                }
+
+                syncErrorMessage = "Sync completed with \(totalFailures) errors. \(errorDetails.joined(separator: ", ")). Synced \(totalSuccess) successfully."
+            } else if totalSuccess > 0 {
+                // All successful
+                syncErrorMessage = nil // Clear any previous errors
+            }
         } catch {
             syncErrorMessage = error.localizedDescription
         }

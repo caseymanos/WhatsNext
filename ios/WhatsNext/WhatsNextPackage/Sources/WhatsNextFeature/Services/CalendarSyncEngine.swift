@@ -554,8 +554,26 @@ final class CalendarSyncEngine {
 
     // MARK: - Bulk Sync
 
+    /// Result of bulk sync operation
+    public struct BulkSyncResult: Sendable {
+        public let successCount: Int
+        public let failureCount: Int
+        public let errors: [(itemId: UUID, itemTitle: String, error: String)]
+
+        public var totalProcessed: Int { successCount + failureCount }
+        public var hasFailures: Bool { failureCount > 0 }
+
+        public var summary: String {
+            if !hasFailures {
+                return "Successfully synced \(successCount) items"
+            } else {
+                return "Synced \(successCount) items successfully, \(failureCount) failed"
+            }
+        }
+    }
+
     /// Sync all pending calendar events for user
-    func syncAllPendingEvents(userId: UUID) async throws {
+    func syncAllPendingEvents(userId: UUID) async throws -> BulkSyncResult {
         let pendingEvents: [CalendarEvent] = try await supabase.database
             .from("calendar_events")
             .select()
@@ -564,13 +582,28 @@ final class CalendarSyncEngine {
             .execute()
             .value
 
+        var successCount = 0
+        var errors: [(UUID, String, String)] = []
+
         for event in pendingEvents {
-            try? await syncCalendarEvent(event, userId: userId)
+            do {
+                try await syncCalendarEvent(event, userId: userId)
+                successCount += 1
+            } catch {
+                logger.error("Failed to sync event '\(event.title)': \(error.localizedDescription)")
+                errors.append((event.id, event.title, error.localizedDescription))
+            }
         }
+
+        return BulkSyncResult(
+            successCount: successCount,
+            failureCount: errors.count,
+            errors: errors
+        )
     }
 
     /// Sync all pending deadlines for user
-    func syncAllPendingDeadlines(userId: UUID) async throws {
+    func syncAllPendingDeadlines(userId: UUID) async throws -> BulkSyncResult {
         let pendingDeadlines: [Deadline] = try await supabase.database
             .from("deadlines")
             .select()
@@ -579,8 +612,23 @@ final class CalendarSyncEngine {
             .execute()
             .value
 
+        var successCount = 0
+        var errors: [(UUID, String, String)] = []
+
         for deadline in pendingDeadlines {
-            try? await syncDeadlineToReminders(deadline, userId: userId)
+            do {
+                try await syncDeadlineToReminders(deadline, userId: userId)
+                successCount += 1
+            } catch {
+                logger.error("Failed to sync deadline '\(deadline.title)': \(error.localizedDescription)")
+                errors.append((deadline.id, deadline.title, error.localizedDescription))
+            }
         }
+
+        return BulkSyncResult(
+            successCount: successCount,
+            failureCount: errors.count,
+            errors: errors
+        )
     }
 }
