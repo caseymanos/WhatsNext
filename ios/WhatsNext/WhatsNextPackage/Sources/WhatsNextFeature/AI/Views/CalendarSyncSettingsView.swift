@@ -354,15 +354,22 @@ struct CalendarSyncSettingsView: View {
             return
         }
 
-        // Otherwise load them
+        // Wait for user ID to be set (may take a moment on first launch)
         isLoading = true
-        defer { isLoading = false }
+        var attempts = 0
+        while viewModel.currentUserId == nil && attempts < 10 {
+            try? await Task.sleep(for: .milliseconds(100))
+            attempts += 1
+        }
 
+        // Load settings
         await viewModel.loadSyncSettings()
         settings = viewModel.syncSettings
 
+        isLoading = false
+
         if settings == nil {
-            errorMessage = "Failed to load sync settings"
+            errorMessage = "Failed to load sync settings. Please try again."
         }
     }
 
