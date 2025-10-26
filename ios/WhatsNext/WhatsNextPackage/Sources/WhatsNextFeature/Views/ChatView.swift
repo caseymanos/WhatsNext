@@ -3,14 +3,15 @@ import SwiftUI
 struct ChatView: View {
     let conversation: Conversation
     let currentUserId: UUID
-    
+
     @StateObject private var viewModel: ChatViewModel
     @State private var messageText = ""
     @State private var showGroupSettings = false
     @FocusState private var isInputFocused: Bool
     @State private var selectedImages: [UIImage] = []
     @State private var photoCaption = ""
-    
+    @State private var previousMessageCount = 0 // Track previous count to detect new messages
+
     init(conversation: Conversation, currentUserId: UUID) {
         self.conversation = conversation
         self.currentUserId = currentUserId
@@ -60,10 +61,19 @@ struct ChatView: View {
                     }
                     .padding()
                 }
-                .onChange(of: viewModel.messages.count) { _, _ in
-                    // Scroll to bottom when new message arrives
+                .onChange(of: viewModel.messages.count) { oldCount, newCount in
+                    // OPTIMIZATION: Only animate scroll for truly NEW messages, not on view reappearance
+                    let isNewMessage = previousMessageCount > 0 && newCount == previousMessageCount + 1
+                    previousMessageCount = newCount
+
                     if let lastMessage = viewModel.messages.last {
-                        withAnimation {
+                        if isNewMessage {
+                            // Animate only for new incoming messages
+                            withAnimation {
+                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            }
+                        } else {
+                            // Instant scroll on initial load or view reappearance (no cascade)
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }

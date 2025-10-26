@@ -38,9 +38,16 @@ struct ConflictDetectionView: View {
             }
         }
         .task {
-            await analyzeConflicts()
+            // Load cached conflicts first (instant), then check if we need to analyze
+            await loadAllConflicts()
+
+            // If no conflicts found, run initial analysis
+            if allConflicts.isEmpty && !isAnalyzing {
+                await analyzeConflicts()
+            }
         }
         .refreshable {
+            // Pull-to-refresh triggers full AI analysis
             await analyzeConflicts()
         }
         .sheet(item: $selectedConflict) { conflict in

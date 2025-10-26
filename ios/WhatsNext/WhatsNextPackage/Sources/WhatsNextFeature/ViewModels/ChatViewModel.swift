@@ -29,6 +29,10 @@ public final class ChatViewModel: ObservableObject {
     private var typingTimer: Timer?
     private var typingCheckTimer: Timer?
     private var markingAsRead = Set<UUID>() // Track messages currently being marked as read
+
+    // Performance optimization: track if messages already loaded
+    private var isInitialLoadComplete = false
+    private var lastFetchTime: Date?
     
     public init(conversation: Conversation, currentUserId: UUID) {
         self.conversation = conversation
@@ -66,8 +70,15 @@ public final class ChatViewModel: ObservableObject {
         }
     }
     
-    /// Fetch messages for the conversation
+    /// Fetch messages for the conversation (optimized for view reappearance)
     public func fetchMessages() async {
+        // OPTIMIZATION: If already loaded recently, do lightweight refresh only
+        if isInitialLoadComplete, let lastFetch = lastFetchTime, Date().timeIntervalSince(lastFetch) < 30 {
+            logger.info("⚡️ Quick refresh - messages already loaded")
+            await quickRefresh()
+            return
+        }
+
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -158,6 +169,10 @@ public final class ChatViewModel: ObservableObject {
 
                 // Sync any pending messages
                 await syncPendingMessages()
+
+                // Mark initial load complete
+                isInitialLoadComplete = true
+                lastFetchTime = Date()
             } catch {
                 logger.error("Failed to load messages from server: \(error.localizedDescription)")
 
@@ -174,6 +189,23 @@ public final class ChatViewModel: ObservableObject {
             // Still register as open conversation for when we come back online
             globalRealtimeManager.setOpenConversation(conversation.id)
         }
+    }
+
+    /// Quick refresh when returning to already-loaded conversation (no loading state, no heavy operations)
+    private func quickRefresh() async {
+        logger.info("⚡️ Quick refresh - syncing new messages only")
+
+        // Ensure conversation is registered as open
+        globalRealtimeManager.setOpenConversation(conversation.id)
+
+        // Sync any pending failed messages (lightweight)
+        await syncPendingMessages()
+
+        // Mark any new unread messages as read (lightweight)
+        await markMessagesAsRead()
+
+        // Update last fetch time
+        lastFetchTime = Date()
     }
     
     /// Setup observers for global real-time events
