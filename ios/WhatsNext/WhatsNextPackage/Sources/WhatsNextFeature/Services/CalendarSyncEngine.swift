@@ -403,14 +403,23 @@ final class CalendarSyncEngine {
                 try await removeFromSyncQueue(itemId: item.id)
             } catch {
                 // Failed - update retry info
+                let originalVersion = item.version
                 item.scheduleNextRetry()
                 item.lastError = error.localizedDescription
 
-                try await supabase.database
-                    .from("calendar_sync_queue")
-                    .update(item)
-                    .eq("id", value: item.id)
-                    .execute()
+                // Use optimistic locking to prevent race conditions
+                do {
+                    try await supabase.database
+                        .from("calendar_sync_queue")
+                        .update(item)
+                        .eq("id", value: item.id)
+                        .eq("version", value: originalVersion)
+                        .execute()
+                } catch {
+                    // Version mismatch (another process updated this item)
+                    // This is expected in concurrent scenarios, just log and continue
+                    logger.info("Sync queue item \(item.id) was already updated by another process (version conflict)")
+                }
             }
         }
     }
