@@ -578,10 +578,29 @@ final class CalendarSyncEngine {
 
     /// Sync all pending calendar events for user
     func syncAllPendingEvents(userId: UUID) async throws -> BulkSyncResult {
+        // Get conversations where user is a participant
+        struct ConversationIdRow: Decodable {
+            let conversation_id: UUID
+        }
+
+        let participantRows: [ConversationIdRow] = try await supabase.database
+            .from("conversation_participants")
+            .select("conversation_id")
+            .eq("user_id", value: userId)
+            .execute()
+            .value
+
+        let userConversations = participantRows.map { $0.conversation_id }
+
+        guard !userConversations.isEmpty else {
+            return BulkSyncResult(successCount: 0, failureCount: 0, errors: [])
+        }
+
+        // Query events in user's conversations with pending sync status
         let pendingEvents: [CalendarEvent] = try await supabase.database
             .from("calendar_events")
             .select()
-            .eq("user_id", value: userId)
+            .in("conversation_id", values: userConversations.map { $0.uuidString })
             .or("sync_status.eq.pending,sync_status.is.null")
             .execute()
             .value

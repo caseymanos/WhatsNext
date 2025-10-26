@@ -192,7 +192,11 @@ struct SchedulingConflictResponse: Codable {
         guard let status = SchedulingConflict.Status(rawValue: status) else {
             throw ParseError.invalidEnumValue(field: "status", value: status)
         }
-        guard let createdAt = ISO8601DateFormatter().date(from: created_at) else {
+
+        // Configure formatter to handle fractional seconds from Postgres timestamps
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions.insert(.withFractionalSeconds)
+        guard let createdAt = dateFormatter.date(from: created_at) else {
             throw ParseError.invalidDate(value: created_at)
         }
 

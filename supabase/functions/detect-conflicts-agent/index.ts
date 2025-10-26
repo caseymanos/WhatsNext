@@ -132,30 +132,8 @@ serve(async (req) => {
 
           if (dateMatch && timeMatch && timeNotNull) {
             console.log(`[PRE-PROCESSING] ⚠️ CONFLICT DETECTED: "${event1.title}" vs "${event2.title}"`);
-
-            try {
-              const { error: insertError } = await serviceClient
-                .from('scheduling_conflicts')
-                .insert({
-                  conversation_id: conversationId,
-                  user_id: userId,
-                  conflict_type: 'time_overlap',
-                  severity: 'urgent',
-                  description: `Direct time overlap: "${event1.title}" and "${event2.title}" both scheduled at ${event1.time} on ${event1.date}`,
-                  affected_items: [event1.title, event2.title],
-                  suggested_resolution: 'One event must be rescheduled immediately to avoid conflict',
-                  status: 'unresolved'
-                });
-
-              if (insertError) {
-                console.error('[PRE-PROCESSING] ❌ Failed to insert conflict:', insertError);
-              } else {
-                preDetectedCount++;
-                console.log(`[PRE-PROCESSING] ✅ Conflict stored successfully`);
-              }
-            } catch (error) {
-              console.error('[PRE-PROCESSING] ❌ Exception storing conflict:', error);
-            }
+            // Note: Not storing here - let AI agent handle storage via tools to avoid duplicates
+            preDetectedCount++;
           }
         }
       }
@@ -169,6 +147,20 @@ serve(async (req) => {
       eventsChecked: allEvents?.length || 0,
       sameTimeConflicts: preDetectedCount
     });
+
+    // Clear old unresolved conflicts for this conversation to avoid duplicates
+    console.log('[CLEANUP] Clearing old unresolved conflicts for conversation');
+    const { error: deleteError } = await serviceClient
+      .from('scheduling_conflicts')
+      .delete()
+      .eq('conversation_id', conversationId)
+      .eq('status', 'unresolved');
+
+    if (deleteError) {
+      console.error('[CLEANUP] Failed to clear old conflicts:', deleteError);
+    } else {
+      console.log('[CLEANUP] Old conflicts cleared successfully');
+    }
 
     // Bind tools with context
     const boundTools: Record<string, any> = {};
