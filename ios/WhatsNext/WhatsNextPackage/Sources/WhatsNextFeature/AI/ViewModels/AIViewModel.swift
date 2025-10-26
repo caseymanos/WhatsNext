@@ -418,7 +418,7 @@ final class AIViewModel: ObservableObject {
                 .from("deadlines")
                 .update([
                     "status": Deadline.DeadlineStatus.pending.rawValue,
-                    "completed_at": String?.none as Any
+                    "completed_at": ""  // Empty string to clear the timestamp
                 ])
                 .eq("id", value: deadline.id)
                 .execute()

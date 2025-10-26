@@ -497,7 +497,7 @@ final class CalendarSyncEngine {
             .update([
                 "sync_status": status.rawValue,
                 "last_sync_attempt": now,
-                "sync_error": error as Any
+                "sync_error": error ?? ""
             ])
             .eq("id", value: eventId)
             .execute()
@@ -515,7 +515,7 @@ final class CalendarSyncEngine {
             .update([
                 "sync_status": status.rawValue,
                 "last_sync_attempt": now,
-                "sync_error": error as Any
+                "sync_error": error ?? ""
             ])
             .eq("id", value: deadlineId)
             .execute()
