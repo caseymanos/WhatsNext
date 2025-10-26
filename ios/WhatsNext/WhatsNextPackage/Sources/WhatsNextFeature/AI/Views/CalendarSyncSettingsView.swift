@@ -53,7 +53,7 @@ struct CalendarSyncSettingsView: View {
                 Text("Please enable \(permissionType == .calendar ? "Calendar" : "Reminders") access in Settings to sync \(permissionType == .calendar ? "events" : "tasks").")
             }
             .sheet(isPresented: $showCalendarPicker) {
-                if let credentials = settings.flatMap({ s in
+                if let credentials = settings.flatMap({ (s: CalendarSyncSettings) -> GoogleOAuthCredentials? in
                     guard let token = s.googleAccessToken,
                           let refresh = s.googleRefreshToken,
                           let expiry = s.googleTokenExpiry else { return nil }
@@ -323,14 +323,10 @@ struct CalendarSyncSettingsView: View {
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
+        .onTapGesture {
             selectedCategory = category
             showCategoryPicker = true
-            selectedCategory = category
-            showCategoryPicker = true
-            selectedCategory = category
-            showCategoryPicker = true
-            selectedCategory = category
-            showCategoryPicker = true
+        }
     }
 
     private var errorView: some View {

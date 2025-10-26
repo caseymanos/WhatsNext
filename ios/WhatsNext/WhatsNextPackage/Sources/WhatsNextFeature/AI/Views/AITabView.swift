@@ -310,6 +310,9 @@ struct AITabView: View {
             await vm.analyzeSelectedForRSVPs()
         case .deadlines:
             await vm.analyzeSelectedForDeadlines()
+        case .conflicts:
+            // Conflicts are handled by ConflictDetectionView directly
+            break
         case .assistant:
             if let firstConv = vm.selectedConversations.first ?? conversations.first?.id {
                 await vm.runProactiveAssistant(conversationId: firstConv)
