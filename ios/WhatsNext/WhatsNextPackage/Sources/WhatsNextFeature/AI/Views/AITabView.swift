@@ -51,15 +51,10 @@ struct AITabView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        // Add haptic feedback for confirmation
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.impactOccurred()
-                        showSyncSettings = true
+                        showSyncSettings.toggle()
                     } label: {
                         Image(systemName: "calendar.badge.gearshape")
-                            .imageScale(.large)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .sheet(isPresented: $showSyncSettings) {

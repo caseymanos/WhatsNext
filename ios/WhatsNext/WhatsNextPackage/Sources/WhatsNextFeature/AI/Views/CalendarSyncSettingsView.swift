@@ -5,7 +5,7 @@ struct CalendarSyncSettingsView: View {
     @ObservedObject var viewModel: AIViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var settings: CalendarSyncSettings?
-    @State private var isLoading = true
+    @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showPermissionAlert = false
     @State private var permissionType: PermissionType = .calendar
@@ -348,6 +348,13 @@ struct CalendarSyncSettingsView: View {
     // MARK: - Helpers
 
     private func loadSettings() async {
+        // Check if settings already loaded from parent
+        if let existingSettings = viewModel.syncSettings {
+            settings = existingSettings
+            return
+        }
+
+        // Otherwise load them
         isLoading = true
         defer { isLoading = false }
 

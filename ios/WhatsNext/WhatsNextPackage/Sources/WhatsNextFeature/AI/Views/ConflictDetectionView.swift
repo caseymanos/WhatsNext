@@ -337,8 +337,60 @@ struct ConflictDetailView: View {
         return outputFormatter.string(from: date)
     }
 
+    private var formattedDescription: String {
+        // Replace all dates in format "YYYY-MM-DD" with formatted dates like "Monday, October 27"
+        let datePattern = #"\d{4}-\d{2}-\d{2}"#
+        guard let regex = try? NSRegularExpression(pattern: datePattern) else {
+            return conflict.description
+        }
+
+        var result = conflict.description
+        let inputFormatter = DateFormatter()
+        inputFormatter.dateFormat = "yyyy-MM-dd"
+
+        let outputFormatter = DateFormatter()
+        outputFormatter.dateFormat = "EEEE, MMMM d"
+
+        // Find all date matches in reverse order to avoid offset issues
+        let matches = regex.matches(in: result, range: NSRange(result.startIndex..., in: result))
+
+        for match in matches.reversed() {
+            guard let range = Range(match.range, in: result) else { continue }
+            let dateString = String(result[range])
+
+            if let date = inputFormatter.date(from: dateString) {
+                let formattedDateStr = outputFormatter.string(from: date)
+                result.replaceSubrange(range, with: formattedDateStr)
+            }
+        }
+
+        return result
+    }
+
     private func findEventTime(for eventTitle: String) -> String? {
-        events.first { $0.title == eventTitle }?.time
+        print("[ConflictDetail] Finding time for: '\(eventTitle)'")
+        print("[ConflictDetail] Available events: \(events.map { "'\($0.title)' at \($0.time ?? "no time")" })")
+
+        // Try exact match first
+        if let event = events.first(where: { $0.title == eventTitle }) {
+            print("[ConflictDetail] Found exact match: \(event.time ?? "no time")")
+            return event.time
+        }
+
+        // Try case-insensitive match
+        if let event = events.first(where: { $0.title.lowercased() == eventTitle.lowercased() }) {
+            print("[ConflictDetail] Found case-insensitive match: \(event.time ?? "no time")")
+            return event.time
+        }
+
+        // Try contains match
+        if let event = events.first(where: { $0.title.contains(eventTitle) || eventTitle.contains($0.title) }) {
+            print("[ConflictDetail] Found partial match: \(event.time ?? "no time")")
+            return event.time
+        }
+
+        print("[ConflictDetail] No match found for '\(eventTitle)'")
+        return nil
     }
 
     private func loadConversationDetails() async {
@@ -363,6 +415,7 @@ struct ConflictDetailView: View {
                 .value
 
             events = response
+            print("[ConflictDetail] Loaded \(events.count) events: \(events.map { "\($0.title) at \($0.time ?? "no time")" })")
         } catch {
             print("Failed to load events: \(error)")
         }
