@@ -68,10 +68,12 @@ struct ConflictDetectionView: View {
             } else {
                 List {
                     ForEach(filteredConflicts) { conflict in
-                        ConflictRow(conflict: conflict)
-                            .onTapGesture {
-                                selectedConflict = conflict
-                            }
+                        Button {
+                            selectedConflict = conflict
+                        } label: {
+                            ConflictRow(conflict: conflict)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -248,7 +250,7 @@ struct ConflictDetailView: View {
                         Text("Description")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(conflict.description)
+                        Text(formattedDescription)
                     }
                 }
 
