@@ -3,13 +3,29 @@ import SwiftUI
 struct ConflictDetectionView: View {
     let conversationId: UUID
 
-    @State private var conflicts: [SchedulingConflict] = []
-    @State private var aiSummary: String = ""
+    @State private var allConflicts: [SchedulingConflict] = []
     @State private var isAnalyzing = false
     @State private var errorMessage: String?
     @State private var selectedConflict: SchedulingConflict?
+    @State private var selectedTab: ConflictTab = .unresolved
+
+    enum ConflictTab {
+        case unresolved
+        case resolved
+    }
 
     private let service = ConflictDetectionService.shared
+
+    private var filteredConflicts: [SchedulingConflict] {
+        allConflicts.filter { conflict in
+            switch selectedTab {
+            case .unresolved:
+                return conflict.status == .unresolved
+            case .resolved:
+                return conflict.status == .resolved
+            }
+        }
+    }
 
     var body: some View {
         Group {
@@ -17,8 +33,6 @@ struct ConflictDetectionView: View {
                 ProgressView("Analyzing schedule for conflicts...")
             } else if let error = errorMessage {
                 errorView(error)
-            } else if conflicts.isEmpty {
-                emptyStateView
             } else {
                 conflictListView
             }
@@ -30,26 +44,35 @@ struct ConflictDetectionView: View {
             await analyzeConflicts()
         }
         .sheet(item: $selectedConflict) { conflict in
-            ConflictDetailView(conflict: conflict)
+            ConflictDetailView(conflict: conflict, conversationId: conversationId) {
+                // Refresh after resolving
+                Task { await loadAllConflicts() }
+            }
         }
     }
 
     private var conflictListView: some View {
-        List {
-            if !aiSummary.isEmpty {
-                Section("AI Analysis") {
-                    Text(aiSummary)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                }
+        VStack(spacing: 0) {
+            // Tab picker
+            Picker("Status", selection: $selectedTab) {
+                Text("Unresolved (\(allConflicts.filter { $0.status == .unresolved }.count))")
+                    .tag(ConflictTab.unresolved)
+                Text("Resolved (\(allConflicts.filter { $0.status == .resolved }.count))")
+                    .tag(ConflictTab.resolved)
             }
+            .pickerStyle(.segmented)
+            .padding()
 
-            Section("Detected Conflicts (\(conflicts.count))") {
-                ForEach(conflicts) { conflict in
-                    ConflictRow(conflict: conflict)
-                        .onTapGesture {
-                            selectedConflict = conflict
-                        }
+            if filteredConflicts.isEmpty {
+                emptyStateView
+            } else {
+                List {
+                    ForEach(filteredConflicts) { conflict in
+                        ConflictRow(conflict: conflict)
+                            .onTapGesture {
+                                selectedConflict = conflict
+                            }
+                    }
                 }
             }
         }
@@ -57,12 +80,12 @@ struct ConflictDetectionView: View {
 
     private var emptyStateView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle")
+            Image(systemName: selectedTab == .unresolved ? "checkmark.circle" : "tray")
                 .font(.system(size: 60))
-                .foregroundStyle(.green)
-            Text("No conflicts detected")
+                .foregroundStyle(selectedTab == .unresolved ? .green : .secondary)
+            Text(selectedTab == .unresolved ? "No conflicts detected" : "No resolved conflicts")
                 .font(.headline)
-            Text("Your schedule looks good!")
+            Text(selectedTab == .unresolved ? "Your schedule looks good!" : "Resolved conflicts will appear here")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -95,15 +118,35 @@ struct ConflictDetectionView: View {
         defer { isAnalyzing = false }
 
         do {
-            let result = try await service.detectConflicts(
+            // Run fresh analysis
+            _ = try await service.detectConflicts(
                 conversationId: conversationId,
                 daysAhead: 14
             )
-            conflicts = result.conflicts
-            aiSummary = result.summary
+            // Load all conflicts (unresolved + resolved)
+            await loadAllConflicts()
         } catch {
             errorMessage = error.localizedDescription
             print("Conflict detection failed: \(error)")
+        }
+    }
+
+    private func loadAllConflicts() async {
+        do {
+            let supabase = SupabaseClientService.shared.client
+
+            // Fetch all conflicts for this conversation (both unresolved and resolved)
+            let response: [SchedulingConflictResponse] = try await supabase
+                .from("scheduling_conflicts")
+                .select()
+                .eq("conversation_id", value: conversationId.uuidString)
+                .order("created_at", ascending: false)
+                .execute()
+                .value
+
+            allConflicts = try response.map { try $0.toDomain() }
+        } catch {
+            print("Failed to load conflicts: \(error)")
         }
     }
 }
@@ -166,28 +209,61 @@ struct ConflictRow: View {
 
 struct ConflictDetailView: View {
     let conflict: SchedulingConflict
+    let conversationId: UUID
+    let onResolve: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var resolution: String = ""
     @State private var isResolving = false
+    @State private var conversation: Conversation?
+    @State private var events: [CalendarEvent] = []
 
     private let service = ConflictDetectionService.shared
 
     var body: some View {
         NavigationStack {
             List {
+                // Conversation context
+                if let conversation = conversation {
+                    Section("From Conversation") {
+                        HStack {
+                            if conversation.isGroup {
+                                Image(systemName: "person.3.fill")
+                                Text(conversation.name ?? "Group Chat")
+                                    .font(.headline)
+                            } else {
+                                Image(systemName: "person.fill")
+                                Text(conversationDisplayName)
+                                    .font(.headline)
+                            }
+                        }
+                    }
+                }
+
                 Section("Details") {
                     LabeledContent("Type", value: conflict.conflictType.displayName)
-                    LabeledContent("Severity", value: conflict.severity.rawValue)
-                    LabeledContent("Description", value: conflict.description)
+                    LabeledContent("Severity", value: conflict.severity.rawValue.capitalized)
+                    LabeledContent("Date", value: formattedDate)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Description")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(conflict.description)
+                    }
                 }
 
                 Section("Affected Items") {
                     ForEach(conflict.affectedItems, id: \.self) { item in
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(item)
                                 .font(.headline)
+                            if let time = findEventTime(for: item) {
+                                Text("Time: \(time)")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .padding(.vertical, 2)
                     }
                 }
 
@@ -197,7 +273,8 @@ struct ConflictDetailView: View {
 
                 if conflict.status == .unresolved {
                     Section("Resolve Conflict") {
-                        TextField("What did you do to resolve this?", text: $resolution)
+                        TextField("What did you do to resolve this?", text: $resolution, axis: .vertical)
+                            .lineLimit(3...6)
                         Button("Mark as Resolved") {
                             Task { await resolveConflict() }
                         }
@@ -212,6 +289,80 @@ struct ConflictDetailView: View {
                     Button("Close") { dismiss() }
                 }
             }
+            .task {
+                await loadConversationDetails()
+                await loadEvents()
+            }
+        }
+    }
+
+    private var conversationDisplayName: String {
+        guard let conversation = conversation,
+              !conversation.isGroup,
+              let participants = conversation.participants else {
+            return "Direct Message"
+        }
+
+        // Find the other participant (not current user)
+        if let otherParticipant = participants.first(where: { $0.id != conflict.userId }) {
+            return otherParticipant.displayName ?? otherParticipant.username ?? "User"
+        }
+
+        return "Direct Message"
+    }
+
+    private var formattedDate: String {
+        // Extract date from description (e.g., "2025-10-27")
+        let datePattern = #"\d{4}-\d{2}-\d{2}"#
+        guard let regex = try? NSRegularExpression(pattern: datePattern),
+              let match = regex.firstMatch(in: conflict.description, range: NSRange(conflict.description.startIndex..., in: conflict.description)),
+              let range = Range(match.range, in: conflict.description) else {
+            return ""
+        }
+
+        let dateString = String(conflict.description[range])
+
+        // Parse and format
+        let inputFormatter = DateFormatter()
+        inputFormatter.dateFormat = "yyyy-MM-dd"
+
+        guard let date = inputFormatter.date(from: dateString) else {
+            return dateString
+        }
+
+        let outputFormatter = DateFormatter()
+        outputFormatter.dateFormat = "EEEE, MMMM d"
+        return outputFormatter.string(from: date)
+    }
+
+    private func findEventTime(for eventTitle: String) -> String? {
+        events.first { $0.title == eventTitle }?.time
+    }
+
+    private func loadConversationDetails() async {
+        do {
+            let service = ConversationService()
+            conversation = try await service.fetchConversation(conversationId: conversationId)
+        } catch {
+            print("Failed to load conversation: \(error)")
+        }
+    }
+
+    private func loadEvents() async {
+        do {
+            let supabase = SupabaseClientService.shared.client
+
+            // Fetch calendar events for this conversation
+            let response: [CalendarEvent] = try await supabase
+                .from("calendar_events")
+                .select()
+                .eq("conversation_id", value: conversationId.uuidString)
+                .execute()
+                .value
+
+            events = response
+        } catch {
+            print("Failed to load events: \(error)")
         }
     }
 
@@ -222,9 +373,11 @@ struct ConflictDetailView: View {
         do {
             // Update conflict status in database
             let supabase = SupabaseClientService.shared.client
-            let now = ISO8601DateFormatter().string(from: Date())
+            let dateFormatter = ISO8601DateFormatter()
+            dateFormatter.formatOptions.insert(.withFractionalSeconds)
+            let now = dateFormatter.string(from: Date())
 
-            try await supabase.database
+            try await supabase
                 .from("scheduling_conflicts")
                 .update([
                     "status": SchedulingConflict.Status.resolved.rawValue,
@@ -234,6 +387,7 @@ struct ConflictDetailView: View {
                 .eq("id", value: conflict.id)
                 .execute()
 
+            onResolve()
             dismiss()
         } catch {
             print("Failed to resolve conflict: \(error)")

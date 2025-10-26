@@ -447,7 +447,8 @@ final class EventKitService {
     /// Combine date and time string (HH:MM format)
     private func combineDateTime(date: Date, time: String) -> Date? {
         let components = time.split(separator: ":")
-        guard components.count == 2,
+        // Handle both HH:MM and HH:MM:SS formats
+        guard components.count >= 2,
               let hour = Int(components[0]),
               let minute = Int(components[1]) else {
             return nil
