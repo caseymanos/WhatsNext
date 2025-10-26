@@ -49,7 +49,7 @@ actor ConflictDetectionService {
             )
 
         // Convert to domain models
-        let conflicts = response.conflicts.map { $0.toDomain() }
+        let conflicts = try response.conflicts.map { try $0.toDomain() }
 
         return ConflictAnalysisResult(
             summary: response.summary,
@@ -82,6 +82,7 @@ struct SchedulingConflict: Identifiable, Sendable {
         case timeUnclear = "time_unclear"
         case noBuffer = "no_buffer"
         case deadlineTight = "deadline_tight"
+        case deadlinePassed = "deadline_passed"
 
         var displayName: String {
             switch self {
@@ -92,6 +93,7 @@ struct SchedulingConflict: Identifiable, Sendable {
             case .timeUnclear: return "Unclear Times"
             case .noBuffer: return "No Buffer"
             case .deadlineTight: return "Tight Deadline"
+            case .deadlinePassed: return "Deadline Passed"
             }
         }
 
@@ -104,6 +106,7 @@ struct SchedulingConflict: Identifiable, Sendable {
             case .timeUnclear: return "questionmark.circle"
             case .noBuffer: return "clock.arrow.circlepath"
             case .deadlineTight: return "hourglass"
+            case .deadlinePassed: return "clock.badge.xmark"
             }
         }
     }
@@ -153,18 +156,57 @@ struct SchedulingConflictResponse: Codable {
     let status: String
     let created_at: String
 
-    func toDomain() -> SchedulingConflict {
-        SchedulingConflict(
-            id: UUID(uuidString: id) ?? UUID(),
-            conversationId: UUID(uuidString: conversation_id) ?? UUID(),
-            userId: UUID(uuidString: user_id) ?? UUID(),
-            conflictType: SchedulingConflict.ConflictType(rawValue: conflict_type) ?? .timeOverlap,
-            severity: SchedulingConflict.Severity(rawValue: severity) ?? .low,
+    enum ParseError: LocalizedError {
+        case invalidUUID(field: String, value: String)
+        case invalidEnumValue(field: String, value: String)
+        case invalidDate(value: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidUUID(let field, let value):
+                return "Invalid UUID for \(field): \(value)"
+            case .invalidEnumValue(let field, let value):
+                return "Invalid value for \(field): \(value)"
+            case .invalidDate(let value):
+                return "Invalid date format: \(value)"
+            }
+        }
+    }
+
+    func toDomain() throws -> SchedulingConflict {
+        guard let id = UUID(uuidString: id) else {
+            throw ParseError.invalidUUID(field: "id", value: id)
+        }
+        guard let conversationId = UUID(uuidString: conversation_id) else {
+            throw ParseError.invalidUUID(field: "conversation_id", value: conversation_id)
+        }
+        guard let userId = UUID(uuidString: user_id) else {
+            throw ParseError.invalidUUID(field: "user_id", value: user_id)
+        }
+        guard let conflictType = SchedulingConflict.ConflictType(rawValue: conflict_type) else {
+            throw ParseError.invalidEnumValue(field: "conflict_type", value: conflict_type)
+        }
+        guard let severity = SchedulingConflict.Severity(rawValue: severity) else {
+            throw ParseError.invalidEnumValue(field: "severity", value: severity)
+        }
+        guard let status = SchedulingConflict.Status(rawValue: status) else {
+            throw ParseError.invalidEnumValue(field: "status", value: status)
+        }
+        guard let createdAt = ISO8601DateFormatter().date(from: created_at) else {
+            throw ParseError.invalidDate(value: created_at)
+        }
+
+        return SchedulingConflict(
+            id: id,
+            conversationId: conversationId,
+            userId: userId,
+            conflictType: conflictType,
+            severity: severity,
             description: description,
             affectedItems: affected_items,
             suggestedResolution: suggested_resolution,
-            status: SchedulingConflict.Status(rawValue: status) ?? .unresolved,
-            createdAt: ISO8601DateFormatter().date(from: created_at) ?? Date()
+            status: status,
+            createdAt: createdAt
         )
     }
 }

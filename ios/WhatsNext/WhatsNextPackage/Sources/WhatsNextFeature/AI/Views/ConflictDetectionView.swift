@@ -221,7 +221,7 @@ struct ConflictDetailView: View {
 
         do {
             // Update conflict status in database
-            let supabase = SupabaseClientService.shared
+            let supabase = SupabaseClientService.shared.client
             let now = ISO8601DateFormatter().string(from: Date())
 
             try await supabase.database

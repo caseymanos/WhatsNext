@@ -353,7 +353,7 @@ export const conflictDetectionTools = {
   storeConflict: tool({
     description: 'Store a detected conflict in the database for tracking and resolution',
     parameters: z.object({
-      conflictType: z.enum(['time_overlap', 'deadline_pressure', 'travel_time', 'capacity', 'time_unclear', 'no_buffer', 'deadline_tight']),
+      conflictType: z.enum(['time_overlap', 'deadline_pressure', 'travel_time', 'capacity', 'time_unclear', 'no_buffer', 'deadline_tight', 'deadline_passed']),
       severity: z.enum(['urgent', 'high', 'medium', 'low']),
       description: z.string(),
       affectedItems: z.array(z.string()),
