@@ -21,6 +21,11 @@ final class AIViewModel: ObservableObject {
     @Published var isSyncing = false
     @Published var syncErrorMessage: String?
 
+    // Conflict detection state
+    @Published var conflictsByConversation: [UUID: [SchedulingConflict]] = [:]
+    @Published var isDetectingConflicts = false
+    @Published var conflictDetectionError: String?
+
     // Current user ID (required for user-specific features)
     var currentUserId: UUID?
 
@@ -29,6 +34,7 @@ final class AIViewModel: ObservableObject {
     }
 
     private let syncEngine = CalendarSyncEngine()
+    private let conflictDetectionService = ConflictDetectionService.shared
 
     // MARK: - Calendar Events
     func analyzeSelectedForEvents() async {
@@ -333,6 +339,11 @@ final class AIViewModel: ObservableObject {
                 // All successful
                 syncErrorMessage = nil // Clear any previous errors
             }
+
+            // Automatically trigger conflict detection after successful sync
+            if totalSuccess > 0 {
+                await detectConflictsForSelectedConversations()
+            }
         } catch {
             syncErrorMessage = error.localizedDescription
         }
@@ -461,6 +472,39 @@ final class AIViewModel: ObservableObject {
         } catch {
             errorMessage = "Failed to mark as pending: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Conflict Detection
+
+    /// Detect scheduling conflicts for selected conversations
+    func detectConflictsForSelectedConversations() async {
+        guard !selectedConversations.isEmpty else { return }
+
+        isDetectingConflicts = true
+        defer { isDetectingConflicts = false }
+        conflictDetectionError = nil
+
+        for conversationId in selectedConversations {
+            do {
+                let result = try await conflictDetectionService.detectConflicts(conversationId: conversationId)
+                conflictsByConversation[conversationId] = result.conflicts
+            } catch {
+                conflictDetectionError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Get total count of unresolved conflicts across all conversations
+    var totalUnresolvedConflictsCount: Int {
+        conflictsByConversation.values
+            .flatMap { $0 }
+            .filter { $0.status != .resolved }
+            .count
+    }
+
+    /// Get conflicts for a specific conversation
+    func conflicts(for conversationId: UUID) -> [SchedulingConflict] {
+        conflictsByConversation[conversationId] ?? []
     }
 }
 
