@@ -82,6 +82,61 @@ serve(async (req) => {
       conversationId,
     };
 
+    // ========================================================================
+    // PRE-PROCESSING: Deterministic same-time conflict detection
+    // ========================================================================
+    // Fetch all events in date range to check for obvious conflicts
+    const { data: allEvents } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr)
+      .order('date', { ascending: true })
+      .order('time', { ascending: true, nullsFirst: false });
+
+    let preDetectedCount = 0;
+    if (allEvents && allEvents.length > 1) {
+      // Check all pairs for exact same-time conflicts
+      for (let i = 0; i < allEvents.length; i++) {
+        for (let j = i + 1; j < allEvents.length; j++) {
+          const event1 = allEvents[i];
+          const event2 = allEvents[j];
+
+          // Exact same date and time = urgent conflict
+          if (event1.date === event2.date &&
+              event1.time === event2.time &&
+              event1.time !== null) {
+
+            try {
+              await serviceClient
+                .from('scheduling_conflicts')
+                .insert({
+                  conversation_id: conversationId,
+                  user_id: userId,
+                  conflict_type: 'time_overlap',
+                  severity: 'urgent',
+                  description: `Direct time overlap: "${event1.title}" and "${event2.title}" both scheduled at ${event1.time} on ${event1.date}`,
+                  affected_items: [event1.title, event2.title],
+                  suggested_resolution: 'One event must be rescheduled immediately to avoid conflict',
+                  status: 'unresolved'
+                });
+
+              preDetectedCount++;
+              console.log(`Pre-detected conflict: ${event1.title} vs ${event2.title} at ${event1.time}`);
+            } catch (error) {
+              console.error('Failed to store pre-detected conflict:', error);
+            }
+          }
+        }
+      }
+    }
+
+    logRequest(requestId, 'pre_processing', {
+      eventsChecked: allEvents?.length || 0,
+      sameTimeConflicts: preDetectedCount
+    });
+
     // Bind tools with context
     const boundTools: Record<string, any> = {};
     for (const [name, toolDef] of Object.entries(conflictDetectionTools)) {
@@ -102,14 +157,23 @@ Your goal is to analyze the user's calendar, deadlines, and commitments to ident
 2. **Capacity conflicts** - Too many events in one day, consecutive busy days, peak hour clustering
 3. **Deadline pressure** - Calendar events preventing task completion, deadline clustering
 
-## Process:
+## CRITICAL RULES (MUST FOLLOW):
+- **ALWAYS call analyzeTimeConflict for EVERY pair of events on the same day** - no exceptions
+- **Events at the EXACT same time are ALWAYS urgent conflicts** - this should never be missed
+- **Store ALL detected conflicts using storeConflict** - even low severity ones matter
+- **Be thorough, not selective** - missing conflicts is worse than over-reporting
+- **Call storeConflict IMMEDIATELY after detecting each conflict** - don't wait or filter
+
+## Process (Follow Exactly):
 1. Use getCalendarEvents to fetch events in the date range (${startDateStr} to ${endDateStr})
 2. Use getDeadlines to fetch pending deadlines
-3. For each pair of events on the same day, use analyzeTimeConflict
-4. For all events, use analyzeCapacity to check daily load
-5. For each deadline, use checkDeadlineConflict to verify feasibility
-6. Store significant conflicts using storeConflict
-7. Create reminders for urgent items using createReminder
+3. **For EVERY pair of events on the same day**, call analyzeTimeConflict (this is mandatory)
+4. **IMMEDIATELY call storeConflict for each conflict returned** from analyzeTimeConflict
+5. For all events together, use analyzeCapacity to check daily load
+6. **Call storeConflict for each capacity conflict** returned
+7. For each deadline, use checkDeadlineConflict to verify feasibility
+8. **Call storeConflict for each deadline conflict** detected
+9. Create reminders for urgent items using createReminder
 
 ## Conflict Severity Guidelines:
 - **URGENT**: Direct overlap, deadline passed, no way to meet commitment
@@ -119,10 +183,10 @@ Your goal is to analyze the user's calendar, deadlines, and commitments to ident
 
 ## Output Requirements:
 Provide a clear, actionable summary focusing on:
-- Number and severity of conflicts found
+- Number and severity of conflicts found (include ALL conflicts, not just urgent)
 - Specific dates/times affected
 - Brief recommendations for each significant conflict
-- Priority order (urgent first)
+- Priority order (urgent first, but list all)
 
 Current date: ${today.toISOString().split('T')[0]}
 Analysis period: ${daysAhead} days (${startDateStr} to ${endDateStr})`;
@@ -131,9 +195,9 @@ Analysis period: ${daysAhead} days (${startDateStr} to ${endDateStr})`;
     const result = await generateText({
       model: openai('gpt-4o'),
       tools: boundTools,
-      maxSteps: 15, // Allow up to 15 tool calls
+      maxSteps: 30, // Allow up to 30 tool calls for thorough analysis
       system: systemPrompt,
-      prompt: `Analyze the schedule for conflicts and provide a comprehensive report. Be thorough but efficient.`,
+      prompt: `Analyze the schedule for conflicts and provide a comprehensive report. Check EVERY event pair and store ALL conflicts found, no matter how minor.`,
       onStepFinish: ({ stepType, toolCalls, toolResults }) => {
         if (toolCalls) {
           toolCalls.forEach((call, idx) => {

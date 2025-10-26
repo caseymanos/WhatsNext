@@ -196,9 +196,40 @@ final class CalendarSyncEngine {
         )
 
         if credentials.willExpireSoon {
-            // TODO: Get client ID and secret from config
-            // For now, throw error requiring manual re-auth
-            throw SyncError.googleNotConfigured
+            // Refresh the access token
+            logger.info("Google access token expiring soon, refreshing...")
+
+            // Use server client ID for token refresh (web client ID from Google Cloud Console)
+            let clientId = "169626497145-480k40j56rc3ufluv8i8o6sr2cp5gki0.apps.googleusercontent.com"
+
+            do {
+                // For mobile apps, Google allows refresh without client secret in certain configurations
+                // If this fails, the app needs proper OAuth 2.0 configuration in Google Cloud Console
+                credentials = try await googleService.refreshAccessToken(
+                    refreshToken: refreshToken,
+                    clientId: clientId,
+                    clientSecret: "" // Mobile apps typically don't need this
+                )
+
+                // Update settings with new tokens
+                var updatedSettings = settings
+                updatedSettings.googleAccessToken = credentials.accessToken
+                updatedSettings.googleTokenExpiry = credentials.expiresAt
+
+                try await supabase.database
+                    .from("calendar_sync_settings")
+                    .update([
+                        "google_access_token": credentials.accessToken,
+                        "google_token_expiry": ISO8601DateFormatter().string(from: credentials.expiresAt)
+                    ])
+                    .eq("user_id", value: userId)
+                    .execute()
+
+                logger.info("Successfully refreshed Google access token")
+            } catch {
+                logger.error("Failed to refresh Google token: \(error.localizedDescription)")
+                throw SyncError.googleNotConfigured
+            }
         }
 
         // Convert to Google Calendar format

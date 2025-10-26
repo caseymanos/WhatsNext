@@ -388,38 +388,57 @@ final class EventKitService {
         let lists = try await getAvailableReminderLists()
         let predicate = eventStore.predicateForReminders(in: lists)
 
-        return try await withCheckedThrowingContinuation { continuation in
-            eventStore.fetchReminders(matching: predicate) { reminders in
-                guard let reminders = reminders else {
-                    continuation.resume(returning: [])
-                    return
-                }
-
-                // Find tracked reminders that were deleted
-                let currentReminderIds = Set(reminders.map { $0.calendarItemIdentifier })
-                for trackedId in trackedReminderIds {
-                    if !currentReminderIds.contains(trackedId) {
-                        changes.append(ExternalReminderChange(
-                            externalId: trackedId,
-                            changeType: .deleted,
-                            reminder: nil
-                        ))
-                    }
-                }
-
-                // Find reminders that were created or updated externally
-                for reminder in reminders {
-                    if !trackedReminderIds.contains(reminder.calendarItemIdentifier) {
-                        changes.append(ExternalReminderChange(
-                            externalId: reminder.calendarItemIdentifier,
-                            changeType: .created,
-                            reminder: reminder
-                        ))
-                    }
-                }
-
-                continuation.resume(returning: changes)
+        return try await withThrowingTaskGroup(of: [ExternalReminderChange].self) { group in
+            // Add timeout task
+            group.addTask {
+                try await Task.sleep(for: .seconds(5))
+                logger.warning("EventKit fetchReminders timed out after 5 seconds")
+                return []
             }
+
+            // Add actual fetch task
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    eventStore.fetchReminders(matching: predicate) { reminders in
+                        guard let reminders = reminders else {
+                            continuation.resume(returning: [])
+                            return
+                        }
+
+                        // Find tracked reminders that were deleted
+                        let currentReminderIds = Set(reminders.map { $0.calendarItemIdentifier })
+                        for trackedId in trackedReminderIds {
+                            if !currentReminderIds.contains(trackedId) {
+                                changes.append(ExternalReminderChange(
+                                    externalId: trackedId,
+                                    changeType: .deleted,
+                                    reminder: nil
+                                ))
+                            }
+                        }
+
+                        // Find reminders that were created or updated externally
+                        for reminder in reminders {
+                            if !trackedReminderIds.contains(reminder.calendarItemIdentifier) {
+                                changes.append(ExternalReminderChange(
+                                    externalId: reminder.calendarItemIdentifier,
+                                    changeType: .created,
+                                    reminder: reminder
+                                ))
+                            }
+                        }
+
+                        continuation.resume(returning: changes)
+                    }
+                }
+            }
+
+            // Return whichever completes first, cancel the other
+            if let result = try await group.next() {
+                group.cancelAll()
+                return result
+            }
+            return []
         }
     }
 
