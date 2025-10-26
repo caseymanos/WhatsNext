@@ -21,22 +21,12 @@ actor ConflictDetectionService {
         let supabase = SupabaseClientService.shared.client
 
         // Call the edge function
-        let response = try await supabase.functions
-            .invoke(
-                "detect-conflicts-agent",
-                options: FunctionInvokeOptions(
-                    body: [
-                        "conversationId": conversationId.uuidString,
-                        "daysAhead": daysAhead
-                    ]
-                )
-            )
+        struct RequestBody: Encodable {
+            let conversationId: String
+            let daysAhead: Int
+        }
 
-        // Parse response
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-
-        struct Response: Codable {
+        struct FunctionResponse: Codable {
             let summary: String
             let conflicts: [SchedulingConflictResponse]
             let detectedCount: Int
@@ -47,16 +37,25 @@ actor ConflictDetectionService {
             }
         }
 
-        let result = try decoder.decode(Response.self, from: response.data)
+        let requestBody = RequestBody(
+            conversationId: conversationId.uuidString,
+            daysAhead: daysAhead
+        )
+
+        let response: FunctionResponse = try await supabase.functions
+            .invoke(
+                "detect-conflicts-agent",
+                options: .init(body: requestBody)
+            )
 
         // Convert to domain models
-        let conflicts = result.conflicts.map { $0.toDomain() }
+        let conflicts = response.conflicts.map { $0.toDomain() }
 
         return ConflictAnalysisResult(
-            summary: result.summary,
+            summary: response.summary,
             conflicts: conflicts,
-            detectedCount: result.detectedCount,
-            stepsUsed: result.stats.stepsUsed
+            detectedCount: response.detectedCount,
+            stepsUsed: response.stats.stepsUsed
         )
     }
 }

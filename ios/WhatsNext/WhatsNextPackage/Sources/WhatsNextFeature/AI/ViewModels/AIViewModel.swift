@@ -378,11 +378,12 @@ final class AIViewModel: ObservableObject {
             let supabase = SupabaseClientService.shared
 
             // Update status to completed
+            let now = ISO8601DateFormatter().string(from: Date())
             try await supabase.database
                 .from("deadlines")
                 .update([
                     "status": Deadline.DeadlineStatus.completed.rawValue,
-                    "completed_at": Date()
+                    "completed_at": now
                 ])
                 .eq("id", value: deadline.id)
                 .execute()
@@ -412,12 +413,12 @@ final class AIViewModel: ObservableObject {
         do {
             let supabase = SupabaseClientService.shared
 
-            // Update status to pending
+            // Update status to pending and clear completed_at
             try await supabase.database
                 .from("deadlines")
                 .update([
                     "status": Deadline.DeadlineStatus.pending.rawValue,
-                    "completed_at": NSNull()
+                    "completed_at": String?.none as Any
                 ])
                 .eq("id", value: deadline.id)
                 .execute()

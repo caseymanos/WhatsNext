@@ -365,6 +365,10 @@ final class CalendarSyncEngine {
                         .execute()
                         .value
                     try await syncDeadlineToReminders(deadline, userId: userId)
+
+                case .rsvp:
+                    // RSVP sync not yet implemented - skip for now
+                    logger.info("Skipping RSVP sync (not yet implemented): \(item.itemId)")
                 }
 
                 // Success - remove from queue
@@ -401,12 +405,12 @@ final class CalendarSyncEngine {
         guard settings.appleCalendarEnabled else { return }
         guard await permissionService.isCalendarAuthorized else { return }
 
-        // Get all tracked events for user
+        // Get all tracked events for user (only those synced to Apple Calendar)
         let trackedEvents: [CalendarEvent] = try await supabase.database
             .from("calendar_events")
             .select()
             .eq("user_id", value: userId)
-            .not("apple_calendar_event_id", operator: .is, value: nil)
+            .not("apple_calendar_event_id", operator: .is, value: "null")
             .execute()
             .value
 
@@ -446,12 +450,12 @@ final class CalendarSyncEngine {
         guard settings.appleRemindersEnabled else { return }
         guard await permissionService.isRemindersAuthorized else { return }
 
-        // Get all tracked reminders for user
+        // Get all tracked reminders for user (only those synced to Apple Reminders)
         let trackedDeadlines: [Deadline] = try await supabase.database
             .from("deadlines")
             .select()
             .eq("user_id", value: userId)
-            .not("apple_reminder_id", operator: .is, value: nil)
+            .not("apple_reminder_id", operator: .is, value: "null")
             .execute()
             .value
 

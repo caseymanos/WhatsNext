@@ -101,19 +101,17 @@ public final class CalendarPermissionService: NSObject {
         // Then request reminders
         try await requestRemindersAuthorization()
 
-        logger.info("All permissions requested. Calendar: \(isCalendarAuthorized), Reminders: \(isRemindersAuthorized)")
+        logger.info("All permissions requested. Calendar: \(self.isCalendarAuthorized), Reminders: \(self.isRemindersAuthorized)")
     }
 
     // MARK: - Settings Navigation
 
-    /// Open system settings to calendar permissions
+    /// Get the settings URL for calendar permissions
     /// Call this when user needs to manually enable permissions
-    public func openSettings() {
-        logger.info("Opening system settings for calendar permissions")
-
-        if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(settingsURL)
-        }
+    /// SwiftUI views should use: openURL(calendarPermissionService.settingsURL)
+    public var settingsURL: URL? {
+        logger.info("Returning system settings URL for calendar permissions")
+        return URL(string: "app-settings:")
     }
 }
 
