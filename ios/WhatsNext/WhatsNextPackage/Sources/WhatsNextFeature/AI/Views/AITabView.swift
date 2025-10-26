@@ -51,9 +51,13 @@ struct AITabView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        showSyncSettings.toggle()
+                        print("🔧 Gear button tapped - opening settings")
+                        showSyncSettings = true
                     } label: {
                         Image(systemName: "calendar.badge.gearshape")
+                            .font(.title3)
+                            .padding(8)
+                            .contentShape(Rectangle())
                     }
                 }
             }

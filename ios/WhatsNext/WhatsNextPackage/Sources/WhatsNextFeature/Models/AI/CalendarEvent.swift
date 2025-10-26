@@ -54,6 +54,80 @@ public struct CalendarEvent: Codable, Identifiable, Hashable {
         case syncError = "sync_error"
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(UUID.self, forKey: .id)
+        conversationId = try container.decode(UUID.self, forKey: .conversationId)
+        messageId = try container.decodeIfPresent(UUID.self, forKey: .messageId)
+        title = try container.decode(String.self, forKey: .title)
+
+        // Handle date field - can be either "YYYY-MM-DD" or ISO8601 timestamp
+        let dateString = try container.decode(String.self, forKey: .date)
+
+        // Try simple date format first (YYYY-MM-DD)
+        let simpleDateFormatter = DateFormatter()
+        simpleDateFormatter.dateFormat = "yyyy-MM-dd"
+        simpleDateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        if let parsedDate = simpleDateFormatter.date(from: dateString) {
+            date = parsedDate
+        } else {
+            // Fall back to ISO8601 format
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions.insert(.withFractionalSeconds)
+
+            guard let parsedDate = isoFormatter.date(from: dateString) else {
+                throw DecodingError.dataCorrupted(.init(
+                    codingPath: [CodingKeys.date],
+                    debugDescription: "Invalid date format: \(dateString)"
+                ))
+            }
+            date = parsedDate
+        }
+
+        time = try container.decodeIfPresent(String.self, forKey: .time)
+        location = try container.decodeIfPresent(String.self, forKey: .location)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        category = try container.decode(EventCategory.self, forKey: .category)
+        confidence = try container.decode(Double.self, forKey: .confidence)
+        confirmed = try container.decode(Bool.self, forKey: .confirmed)
+
+        // Decode timestamps with ISO8601
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions.insert(.withFractionalSeconds)
+
+        let createdAtString = try container.decode(String.self, forKey: .createdAt)
+        guard let parsedCreatedAt = isoFormatter.date(from: createdAtString) else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: [CodingKeys.createdAt],
+                debugDescription: "Invalid timestamp format: \(createdAtString)"
+            ))
+        }
+        createdAt = parsedCreatedAt
+
+        let updatedAtString = try container.decode(String.self, forKey: .updatedAt)
+        guard let parsedUpdatedAt = isoFormatter.date(from: updatedAtString) else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: [CodingKeys.updatedAt],
+                debugDescription: "Invalid timestamp format: \(updatedAtString)"
+            ))
+        }
+        updatedAt = parsedUpdatedAt
+
+        appleCalendarEventId = try container.decodeIfPresent(String.self, forKey: .appleCalendarEventId)
+        googleCalendarEventId = try container.decodeIfPresent(String.self, forKey: .googleCalendarEventId)
+        syncStatus = try container.decodeIfPresent(String.self, forKey: .syncStatus)
+
+        if let lastSyncString = try container.decodeIfPresent(String.self, forKey: .lastSyncAttempt) {
+            lastSyncAttempt = isoFormatter.date(from: lastSyncString)
+        } else {
+            lastSyncAttempt = nil
+        }
+
+        syncError = try container.decodeIfPresent(String.self, forKey: .syncError)
+    }
+
     public init(
         id: UUID = UUID(),
         conversationId: UUID,

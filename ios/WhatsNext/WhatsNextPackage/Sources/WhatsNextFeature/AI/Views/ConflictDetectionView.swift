@@ -174,7 +174,7 @@ struct ConflictRow: View {
                     .cornerRadius(4)
             }
 
-            Text(conflict.description)
+            Text(formattedDescription)
                 .font(.body)
 
             if conflict.status == .unresolved {
@@ -188,6 +188,58 @@ struct ConflictRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var formattedDescription: String {
+        var result = conflict.description
+
+        // Replace all dates in format "YYYY-MM-DD" with formatted dates like "Monday, October 27"
+        let datePattern = #"\d{4}-\d{2}-\d{2}"#
+        if let dateRegex = try? NSRegularExpression(pattern: datePattern) {
+            let inputFormatter = DateFormatter()
+            inputFormatter.dateFormat = "yyyy-MM-dd"
+
+            let outputFormatter = DateFormatter()
+            outputFormatter.dateFormat = "EEEE, MMMM d"
+
+            // Find all date matches in reverse order to avoid offset issues
+            let matches = dateRegex.matches(in: result, range: NSRange(result.startIndex..., in: result))
+
+            for match in matches.reversed() {
+                guard let range = Range(match.range, in: result) else { continue }
+                let dateString = String(result[range])
+
+                if let date = inputFormatter.date(from: dateString) {
+                    let formattedDateStr = outputFormatter.string(from: date)
+                    result.replaceSubrange(range, with: formattedDateStr)
+                }
+            }
+        }
+
+        // Replace all times in format "HH:mm:ss" with formatted times like "3:00 PM"
+        let timePattern = #"\d{2}:\d{2}:\d{2}"#
+        if let timeRegex = try? NSRegularExpression(pattern: timePattern) {
+            let inputFormatter = DateFormatter()
+            inputFormatter.dateFormat = "HH:mm:ss"
+
+            let outputFormatter = DateFormatter()
+            outputFormatter.dateFormat = "h:mm a"
+
+            // Find all time matches in reverse order to avoid offset issues
+            let matches = timeRegex.matches(in: result, range: NSRange(result.startIndex..., in: result))
+
+            for match in matches.reversed() {
+                guard let range = Range(match.range, in: result) else { continue }
+                let timeString = String(result[range])
+
+                if let date = inputFormatter.date(from: timeString) {
+                    let formattedTimeStr = outputFormatter.string(from: date)
+                    result.replaceSubrange(range, with: formattedTimeStr)
+                }
+            }
+        }
+
+        return result
     }
 
     private var severityIcon: String {
@@ -338,29 +390,51 @@ struct ConflictDetailView: View {
     }
 
     private var formattedDescription: String {
+        var result = conflict.description
+
         // Replace all dates in format "YYYY-MM-DD" with formatted dates like "Monday, October 27"
         let datePattern = #"\d{4}-\d{2}-\d{2}"#
-        guard let regex = try? NSRegularExpression(pattern: datePattern) else {
-            return conflict.description
+        if let dateRegex = try? NSRegularExpression(pattern: datePattern) {
+            let inputFormatter = DateFormatter()
+            inputFormatter.dateFormat = "yyyy-MM-dd"
+
+            let outputFormatter = DateFormatter()
+            outputFormatter.dateFormat = "EEEE, MMMM d"
+
+            // Find all date matches in reverse order to avoid offset issues
+            let matches = dateRegex.matches(in: result, range: NSRange(result.startIndex..., in: result))
+
+            for match in matches.reversed() {
+                guard let range = Range(match.range, in: result) else { continue }
+                let dateString = String(result[range])
+
+                if let date = inputFormatter.date(from: dateString) {
+                    let formattedDateStr = outputFormatter.string(from: date)
+                    result.replaceSubrange(range, with: formattedDateStr)
+                }
+            }
         }
 
-        var result = conflict.description
-        let inputFormatter = DateFormatter()
-        inputFormatter.dateFormat = "yyyy-MM-dd"
+        // Replace all times in format "HH:mm:ss" with formatted times like "3:00 PM"
+        let timePattern = #"\d{2}:\d{2}:\d{2}"#
+        if let timeRegex = try? NSRegularExpression(pattern: timePattern) {
+            let inputFormatter = DateFormatter()
+            inputFormatter.dateFormat = "HH:mm:ss"
 
-        let outputFormatter = DateFormatter()
-        outputFormatter.dateFormat = "EEEE, MMMM d"
+            let outputFormatter = DateFormatter()
+            outputFormatter.dateFormat = "h:mm a"
 
-        // Find all date matches in reverse order to avoid offset issues
-        let matches = regex.matches(in: result, range: NSRange(result.startIndex..., in: result))
+            // Find all time matches in reverse order to avoid offset issues
+            let matches = timeRegex.matches(in: result, range: NSRange(result.startIndex..., in: result))
 
-        for match in matches.reversed() {
-            guard let range = Range(match.range, in: result) else { continue }
-            let dateString = String(result[range])
+            for match in matches.reversed() {
+                guard let range = Range(match.range, in: result) else { continue }
+                let timeString = String(result[range])
 
-            if let date = inputFormatter.date(from: dateString) {
-                let formattedDateStr = outputFormatter.string(from: date)
-                result.replaceSubrange(range, with: formattedDateStr)
+                if let date = inputFormatter.date(from: timeString) {
+                    let formattedTimeStr = outputFormatter.string(from: date)
+                    result.replaceSubrange(range, with: formattedTimeStr)
+                }
             }
         }
 
@@ -368,29 +442,39 @@ struct ConflictDetailView: View {
     }
 
     private func findEventTime(for eventTitle: String) -> String? {
-        print("[ConflictDetail] Finding time for: '\(eventTitle)'")
-        print("[ConflictDetail] Available events: \(events.map { "'\($0.title)' at \($0.time ?? "no time")" })")
-
         // Try exact match first
         if let event = events.first(where: { $0.title == eventTitle }) {
-            print("[ConflictDetail] Found exact match: \(event.time ?? "no time")")
-            return event.time
+            return formatTime(event.time)
         }
 
         // Try case-insensitive match
         if let event = events.first(where: { $0.title.lowercased() == eventTitle.lowercased() }) {
-            print("[ConflictDetail] Found case-insensitive match: \(event.time ?? "no time")")
-            return event.time
+            return formatTime(event.time)
         }
 
         // Try contains match
         if let event = events.first(where: { $0.title.contains(eventTitle) || eventTitle.contains($0.title) }) {
-            print("[ConflictDetail] Found partial match: \(event.time ?? "no time")")
-            return event.time
+            return formatTime(event.time)
         }
 
-        print("[ConflictDetail] No match found for '\(eventTitle)'")
         return nil
+    }
+
+    private func formatTime(_ time: String?) -> String? {
+        guard let time = time else { return nil }
+
+        // Parse time from "HH:mm:ss" or "HH:mm" format
+        let inputFormatter = DateFormatter()
+        inputFormatter.dateFormat = time.contains(":") && time.split(separator: ":").count == 3 ? "HH:mm:ss" : "HH:mm"
+
+        guard let date = inputFormatter.date(from: time) else {
+            return time // Return original if parsing fails
+        }
+
+        // Format to 12-hour with AM/PM
+        let outputFormatter = DateFormatter()
+        outputFormatter.dateFormat = "h:mm a"
+        return outputFormatter.string(from: date)
     }
 
     private func loadConversationDetails() async {
@@ -415,7 +499,6 @@ struct ConflictDetailView: View {
                 .value
 
             events = response
-            print("[ConflictDetail] Loaded \(events.count) events: \(events.map { "\($0.title) at \($0.time ?? "no time")" })")
         } catch {
             print("Failed to load events: \(error)")
         }
