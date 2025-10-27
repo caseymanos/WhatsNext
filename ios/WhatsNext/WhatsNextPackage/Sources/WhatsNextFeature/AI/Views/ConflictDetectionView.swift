@@ -28,13 +28,28 @@ struct ConflictDetectionView: View {
     }
 
     var body: some View {
-        Group {
+        ZStack(alignment: .top) {
+            // Always show conflict list (with cached data)
+            conflictListView
+
+            // Show loading overlay when analyzing
             if isAnalyzing {
-                ProgressView("Analyzing schedule for conflicts...")
-            } else if let error = errorMessage {
-                errorView(error)
-            } else {
-                conflictListView
+                VStack {
+                    Spacer()
+                    ProgressView("Analyzing schedule for conflicts...")
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(12)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.opacity(0.2))
+            }
+
+            // Show error banner if analysis failed
+            if let error = errorMessage {
+                errorBanner(error)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .task {
@@ -101,24 +116,52 @@ struct ConflictDetectionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func errorView(_ message: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 60))
-                .foregroundStyle(.orange)
-            Text("Analysis Failed")
-                .font(.headline)
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Retry") {
-                Task { await analyzeConflicts() }
+    private func errorBanner(_ message: String) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Live Analysis Failed")
+                        .font(.subheadline.bold())
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                Button {
+                    Task { await analyzeConflicts() }
+                } label: {
+                    Text("Retry")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.orange)
+                        .foregroundStyle(.white)
+                        .cornerRadius(6)
+                }
+
+                Button {
+                    errorMessage = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
             }
-            .buttonStyle(.borderedProminent)
+            .padding()
+            .background(.ultraThinMaterial)
+            .cornerRadius(12)
+            .shadow(radius: 4)
+
+            Text("Showing cached results from previous analysis")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func analyzeConflicts() async {

@@ -5,7 +5,7 @@
 -- Scheduling Conflicts Table
 -- ============================================================================
 -- Stores detected scheduling conflicts between events, deadlines, and capacity issues
-CREATE TABLE scheduling_conflicts (
+CREATE TABLE IF NOT EXISTS scheduling_conflicts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -37,13 +37,13 @@ CREATE TABLE scheduling_conflicts (
 );
 
 -- Indexes for efficient queries
-CREATE INDEX idx_scheduling_conflicts_user_status
+CREATE INDEX IF NOT EXISTS idx_scheduling_conflicts_user_status
     ON scheduling_conflicts(user_id, status);
-CREATE INDEX idx_scheduling_conflicts_conversation
+CREATE INDEX IF NOT EXISTS idx_scheduling_conflicts_conversation
     ON scheduling_conflicts(conversation_id);
-CREATE INDEX idx_scheduling_conflicts_severity
+CREATE INDEX IF NOT EXISTS idx_scheduling_conflicts_severity
     ON scheduling_conflicts(severity) WHERE status = 'unresolved';
-CREATE INDEX idx_scheduling_conflicts_created
+CREATE INDEX IF NOT EXISTS idx_scheduling_conflicts_created
     ON scheduling_conflicts(created_at DESC);
 
 -- Auto-update updated_at timestamp
@@ -55,6 +55,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS scheduling_conflicts_updated_at_trigger ON scheduling_conflicts;
 CREATE TRIGGER scheduling_conflicts_updated_at_trigger
     BEFORE UPDATE ON scheduling_conflicts
     FOR EACH ROW
@@ -64,7 +65,7 @@ CREATE TRIGGER scheduling_conflicts_updated_at_trigger
 -- User Preferences Table
 -- ============================================================================
 -- Stores user scheduling preferences and learned patterns for personalized suggestions
-CREATE TABLE user_preferences (
+CREATE TABLE IF NOT EXISTS user_preferences (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 
     -- Explicit preferences
@@ -88,6 +89,7 @@ CREATE TABLE user_preferences (
 );
 
 -- Auto-update updated_at timestamp
+DROP TRIGGER IF EXISTS user_preferences_updated_at_trigger ON user_preferences;
 CREATE TRIGGER user_preferences_updated_at_trigger
     BEFORE UPDATE ON user_preferences
     FOR EACH ROW
@@ -97,7 +99,7 @@ CREATE TRIGGER user_preferences_updated_at_trigger
 -- Resolution Feedback Table
 -- ============================================================================
 -- Tracks user feedback on conflict resolution suggestions for learning
-CREATE TABLE resolution_feedback (
+CREATE TABLE IF NOT EXISTS resolution_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     conflict_id UUID REFERENCES scheduling_conflicts(id) ON DELETE CASCADE,
@@ -125,13 +127,13 @@ CREATE TABLE resolution_feedback (
 );
 
 -- Indexes
-CREATE INDEX idx_resolution_feedback_user
+CREATE INDEX IF NOT EXISTS idx_resolution_feedback_user
     ON resolution_feedback(user_id);
-CREATE INDEX idx_resolution_feedback_conflict
+CREATE INDEX IF NOT EXISTS idx_resolution_feedback_conflict
     ON resolution_feedback(conflict_id);
-CREATE INDEX idx_resolution_feedback_strategy
+CREATE INDEX IF NOT EXISTS idx_resolution_feedback_strategy
     ON resolution_feedback(suggested_strategy, user_decision);
-CREATE INDEX idx_resolution_feedback_created
+CREATE INDEX IF NOT EXISTS idx_resolution_feedback_created
     ON resolution_feedback(created_at DESC);
 
 -- ============================================================================
@@ -144,50 +146,50 @@ ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resolution_feedback ENABLE ROW LEVEL SECURITY;
 
 -- scheduling_conflicts policies
-CREATE POLICY "Users can view their own conflicts"
-    ON scheduling_conflicts FOR SELECT
+DROP POLICY IF EXISTS "Users can view their own conflicts" ON scheduling_conflicts;
+CREATE POLICY "Users can view their own conflicts" ON scheduling_conflicts FOR SELECT
     USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert their own conflicts"
-    ON scheduling_conflicts FOR INSERT
+DROP POLICY IF EXISTS "Users can insert their own conflicts" ON scheduling_conflicts;
+CREATE POLICY "Users can insert their own conflicts" ON scheduling_conflicts FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update their own conflicts"
-    ON scheduling_conflicts FOR UPDATE
+DROP POLICY IF EXISTS "Users can update their own conflicts" ON scheduling_conflicts;
+CREATE POLICY "Users can update their own conflicts" ON scheduling_conflicts FOR UPDATE
     USING (auth.uid() = user_id);
 
-CREATE POLICY "Service role can manage all conflicts"
-    ON scheduling_conflicts FOR ALL
+DROP POLICY IF EXISTS "Service role can manage all conflicts" ON scheduling_conflicts;
+CREATE POLICY "Service role can manage all conflicts" ON scheduling_conflicts FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
 
 -- user_preferences policies
-CREATE POLICY "Users can view their own preferences"
-    ON user_preferences FOR SELECT
+DROP POLICY IF EXISTS "Users can view their own preferences" ON user_preferences;
+CREATE POLICY "Users can view their own preferences" ON user_preferences FOR SELECT
     USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert their own preferences"
-    ON user_preferences FOR INSERT
+DROP POLICY IF EXISTS "Users can insert their own preferences" ON user_preferences;
+CREATE POLICY "Users can insert their own preferences" ON user_preferences FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update their own preferences"
-    ON user_preferences FOR UPDATE
+DROP POLICY IF EXISTS "Users can update their own preferences" ON user_preferences;
+CREATE POLICY "Users can update their own preferences" ON user_preferences FOR UPDATE
     USING (auth.uid() = user_id);
 
-CREATE POLICY "Service role can manage all preferences"
-    ON user_preferences FOR ALL
+DROP POLICY IF EXISTS "Service role can manage all preferences" ON user_preferences;
+CREATE POLICY "Service role can manage all preferences" ON user_preferences FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
 
 -- resolution_feedback policies
-CREATE POLICY "Users can view their own feedback"
-    ON resolution_feedback FOR SELECT
+DROP POLICY IF EXISTS "Users can view their own feedback" ON resolution_feedback;
+CREATE POLICY "Users can view their own feedback" ON resolution_feedback FOR SELECT
     USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert their own feedback"
-    ON resolution_feedback FOR INSERT
+DROP POLICY IF EXISTS "Users can insert their own feedback" ON resolution_feedback;
+CREATE POLICY "Users can insert their own feedback" ON resolution_feedback FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Service role can manage all feedback"
-    ON resolution_feedback FOR ALL
+DROP POLICY IF EXISTS "Service role can manage all feedback" ON resolution_feedback;
+CREATE POLICY "Service role can manage all feedback" ON resolution_feedback FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
 
 -- ============================================================================

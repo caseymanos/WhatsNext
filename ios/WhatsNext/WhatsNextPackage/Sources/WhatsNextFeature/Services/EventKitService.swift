@@ -44,7 +44,7 @@ final class EventKitService {
 
     /// Get all available calendars for events
     func getAvailableCalendars() async throws -> [EKCalendar] {
-        guard await permissionService.isCalendarAuthorized else {
+        guard await permissionService.isCalendarAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -62,7 +62,7 @@ final class EventKitService {
         from aiEvent: CalendarEvent,
         calendarName: String?
     ) async throws -> String {
-        guard await permissionService.isCalendarAuthorized else {
+        guard await permissionService.isCalendarAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -114,7 +114,7 @@ final class EventKitService {
         eventId: String,
         from aiEvent: CalendarEvent
     ) async throws {
-        guard await permissionService.isCalendarAuthorized else {
+        guard await permissionService.isCalendarAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -150,7 +150,7 @@ final class EventKitService {
 
     /// Delete calendar event
     func deleteEvent(eventId: String) async throws {
-        guard await permissionService.isCalendarAuthorized else {
+        guard await permissionService.isCalendarAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -167,7 +167,7 @@ final class EventKitService {
 
     /// Find event by ID
     func findEvent(eventId: String) async throws -> EKEvent? {
-        guard await permissionService.isCalendarAuthorized else {
+        guard await permissionService.isCalendarAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -178,7 +178,7 @@ final class EventKitService {
 
     /// Get default reminders list
     func getDefaultRemindersList() async throws -> EKCalendar {
-        guard await permissionService.isRemindersAuthorized else {
+        guard await permissionService.isRemindersAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -191,7 +191,7 @@ final class EventKitService {
 
     /// Get all available reminder lists
     func getAvailableReminderLists() async throws -> [EKCalendar] {
-        guard await permissionService.isRemindersAuthorized else {
+        guard await permissionService.isRemindersAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -209,7 +209,7 @@ final class EventKitService {
         from deadline: Deadline,
         listName: String?
     ) async throws -> String {
-        guard await permissionService.isRemindersAuthorized else {
+        guard await permissionService.isRemindersAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -263,7 +263,7 @@ final class EventKitService {
         reminderId: String,
         from deadline: Deadline
     ) async throws {
-        guard await permissionService.isRemindersAuthorized else {
+        guard await permissionService.isRemindersAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -301,7 +301,7 @@ final class EventKitService {
 
     /// Delete reminder
     func deleteReminder(reminderId: String) async throws {
-        guard await permissionService.isRemindersAuthorized else {
+        guard await permissionService.isRemindersAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -318,7 +318,7 @@ final class EventKitService {
 
     /// Find reminder by ID
     func findReminder(reminderId: String) async throws -> EKReminder? {
-        guard await permissionService.isRemindersAuthorized else {
+        guard await permissionService.isRemindersAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -333,7 +333,7 @@ final class EventKitService {
         endDate: Date,
         trackedEventIds: [String]
     ) async throws -> [ExternalEventChange] {
-        guard await permissionService.isCalendarAuthorized else {
+        guard await permissionService.isCalendarAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 
@@ -378,7 +378,7 @@ final class EventKitService {
     func detectExternalReminderChanges(
         trackedReminderIds: [String]
     ) async throws -> [ExternalReminderChange] {
-        guard await permissionService.isRemindersAuthorized else {
+        guard await permissionService.isRemindersAuthorizationFullAccess() else {
             throw CalendarServiceError.permissionDenied
         }
 

@@ -3,7 +3,7 @@
 -- Purpose: Support Busy Parent/Caregiver persona AI features
 
 -- Calendar Events: AI-extracted calendar events from conversations
-CREATE TABLE calendar_events (
+CREATE TABLE IF NOT EXISTS calendar_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
@@ -20,7 +20,7 @@ CREATE TABLE calendar_events (
 );
 
 -- Decisions: AI-tracked decisions from group/family conversations
-CREATE TABLE decisions (
+CREATE TABLE IF NOT EXISTS decisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
@@ -32,7 +32,7 @@ CREATE TABLE decisions (
 );
 
 -- Priority Messages: AI-detected important messages requiring attention
-CREATE TABLE priority_messages (
+CREATE TABLE IF NOT EXISTS priority_messages (
     message_id UUID PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
     priority TEXT NOT NULL CHECK (priority IN ('urgent', 'high', 'medium')),
     reason TEXT NOT NULL,
@@ -42,7 +42,7 @@ CREATE TABLE priority_messages (
 );
 
 -- RSVP Tracking: Track event RSVPs and responses
-CREATE TABLE rsvp_tracking (
+CREATE TABLE IF NOT EXISTS rsvp_tracking (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -59,7 +59,7 @@ CREATE TABLE rsvp_tracking (
 );
 
 -- Deadlines: AI-extracted deadlines and tasks
-CREATE TABLE deadlines (
+CREATE TABLE IF NOT EXISTS deadlines (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -75,7 +75,7 @@ CREATE TABLE deadlines (
 );
 
 -- Reminders: AI-generated and user-created reminders
-CREATE TABLE reminders (
+CREATE TABLE IF NOT EXISTS reminders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
@@ -87,7 +87,7 @@ CREATE TABLE reminders (
 );
 
 -- AI Usage Tracking: Rate limiting and cost control
-CREATE TABLE ai_usage (
+CREATE TABLE IF NOT EXISTS ai_usage (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     function_name TEXT NOT NULL,
@@ -104,6 +104,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS calendar_events_updated_at_trigger ON calendar_events;
 CREATE TRIGGER calendar_events_updated_at_trigger
     BEFORE UPDATE ON calendar_events
     FOR EACH ROW

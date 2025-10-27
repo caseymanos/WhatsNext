@@ -5,7 +5,10 @@ struct RSVPView: View {
     @ObservedObject var viewModel: AIViewModel
 
     private var allRSVPs: [RSVPTracking] {
-        viewModel.rsvpsByConversation.values
+        // Only include RSVPs from effectiveConversations (selected or all if none selected)
+        viewModel.rsvpsByConversation
+            .filter { viewModel.effectiveConversations.contains($0.key) }
+            .values
             .flatMap { $0 }
             .sorted { ($0.deadline ?? Date.distantFuture) < ($1.deadline ?? Date.distantFuture) }
     }
@@ -62,6 +65,7 @@ struct RSVPView: View {
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.effectiveConversations)
     }
 
     private func rsvpRow(_ rsvp: RSVPTracking) -> some View {

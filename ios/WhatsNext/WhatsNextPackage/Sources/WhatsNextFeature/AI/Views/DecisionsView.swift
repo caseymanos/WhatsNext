@@ -39,7 +39,9 @@ struct DecisionsView: View {
 
     private var decisionsList: some View {
         List {
-            ForEach(Array(viewModel.decisionsByConversation.keys), id: \.self) { convId in
+            // Only show decisions for effectiveConversations (selected or all if none selected)
+            // Sort conversations for consistent display order
+            ForEach(Array(viewModel.effectiveConversations).sorted(), id: \.self) { convId in
                 if let decisions = viewModel.decisionsByConversation[convId], !decisions.isEmpty {
                     Section(header: Text("Conversation \(convId.uuidString.prefix(4))")) {
                         ForEach(decisions) { decision in
@@ -49,6 +51,7 @@ struct DecisionsView: View {
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.effectiveConversations)
     }
 
     private func decisionRow(_ decision: Decision) -> some View {

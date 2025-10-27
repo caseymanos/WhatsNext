@@ -11,6 +11,8 @@ struct ProactiveAssistantView: View {
             if viewModel.isAnalyzing {
                 ProgressView("AI is thinking...")
                     .padding()
+            } else if let error = viewModel.errorMessage {
+                errorView(error)
             } else if let insights = viewModel.proactiveInsights {
                 insightsView(insights)
             } else {
@@ -21,6 +23,28 @@ struct ProactiveAssistantView: View {
 
             queryInputBar
         }
+    }
+
+    private func errorView(_ message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 60))
+                .foregroundStyle(.red)
+            Text("Error")
+                .font(.headline)
+                .foregroundStyle(.primary)
+            Text(message)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Button("Try Again") {
+                viewModel.errorMessage = nil
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyState: some View {

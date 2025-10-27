@@ -21,6 +21,7 @@ $$ LANGUAGE plpgsql;
 -- Drop trigger if it exists and recreate
 DROP TRIGGER IF EXISTS calendar_sync_queue_version_trigger ON calendar_sync_queue;
 
+DROP TRIGGER IF EXISTS calendar_sync_queue_version_trigger ON calendar_sync_queue;
 CREATE TRIGGER calendar_sync_queue_version_trigger
     BEFORE UPDATE ON calendar_sync_queue
     FOR EACH ROW

@@ -11,7 +11,6 @@ public struct ContentView: View {
     enum Tab: Hashable {
         case chats
         case aiInsights
-        case debug
     }
 
     public var body: some View {
@@ -38,10 +37,6 @@ public struct ContentView: View {
                     .tag(Tab.aiInsights)
             }
             #endif
-
-            DebugView()
-                .tabItem { Label("Debug", systemImage: "wrench.and.screwdriver") }
-                .tag(Tab.debug)
         }
         .onChange(of: debug.aiEnabled) { oldValue, newValue in
             // If AI tab is being disabled and we're on it, switch to Chats

@@ -16,8 +16,8 @@ ALTER TABLE ai_usage ENABLE ROW LEVEL SECURITY;
 -- ============================================================================
 
 -- Users can view calendar events for conversations they're part of
-CREATE POLICY "Users can view calendar events in their conversations"
-    ON calendar_events
+DROP POLICY IF EXISTS "Users can view calendar events in their conversations" ON calendar_events;
+CREATE POLICY "Users can view calendar events in their conversations" ON calendar_events
     FOR SELECT
     USING (
         EXISTS (
@@ -29,14 +29,14 @@ CREATE POLICY "Users can view calendar events in their conversations"
 
 -- Edge functions can insert calendar events (service role)
 -- Users cannot directly insert - only via Edge Functions
-CREATE POLICY "Service role can insert calendar events"
-    ON calendar_events
+DROP POLICY IF EXISTS "Service role can insert calendar events" ON calendar_events;
+CREATE POLICY "Service role can insert calendar events" ON calendar_events
     FOR INSERT
     WITH CHECK (auth.jwt()->>'role' = 'service_role');
 
 -- Users can update confirmed status on calendar events in their conversations
-CREATE POLICY "Users can update calendar events in their conversations"
-    ON calendar_events
+DROP POLICY IF EXISTS "Users can update calendar events in their conversations" ON calendar_events;
+CREATE POLICY "Users can update calendar events in their conversations" ON calendar_events
     FOR UPDATE
     USING (
         EXISTS (
@@ -47,8 +47,8 @@ CREATE POLICY "Users can update calendar events in their conversations"
     );
 
 -- Users can delete calendar events in their conversations
-CREATE POLICY "Users can delete calendar events in their conversations"
-    ON calendar_events
+DROP POLICY IF EXISTS "Users can delete calendar events in their conversations" ON calendar_events;
+CREATE POLICY "Users can delete calendar events in their conversations" ON calendar_events
     FOR DELETE
     USING (
         EXISTS (
@@ -63,8 +63,8 @@ CREATE POLICY "Users can delete calendar events in their conversations"
 -- ============================================================================
 
 -- Users can view decisions in their conversations
-CREATE POLICY "Users can view decisions in their conversations"
-    ON decisions
+DROP POLICY IF EXISTS "Users can view decisions in their conversations" ON decisions;
+CREATE POLICY "Users can view decisions in their conversations" ON decisions
     FOR SELECT
     USING (
         EXISTS (
@@ -75,8 +75,8 @@ CREATE POLICY "Users can view decisions in their conversations"
     );
 
 -- Service role can insert decisions
-CREATE POLICY "Service role can insert decisions"
-    ON decisions
+DROP POLICY IF EXISTS "Service role can insert decisions" ON decisions;
+CREATE POLICY "Service role can insert decisions" ON decisions
     FOR INSERT
     WITH CHECK (auth.jwt()->>'role' = 'service_role');
 
@@ -85,8 +85,8 @@ CREATE POLICY "Service role can insert decisions"
 -- ============================================================================
 
 -- Users can view priority flags for messages they can see
-CREATE POLICY "Users can view priority messages in their conversations"
-    ON priority_messages
+DROP POLICY IF EXISTS "Users can view priority messages in their conversations" ON priority_messages;
+CREATE POLICY "Users can view priority messages in their conversations" ON priority_messages
     FOR SELECT
     USING (
         EXISTS (
@@ -98,14 +98,14 @@ CREATE POLICY "Users can view priority messages in their conversations"
     );
 
 -- Service role can insert priority messages
-CREATE POLICY "Service role can insert priority messages"
-    ON priority_messages
+DROP POLICY IF EXISTS "Service role can insert priority messages" ON priority_messages;
+CREATE POLICY "Service role can insert priority messages" ON priority_messages
     FOR INSERT
     WITH CHECK (auth.jwt()->>'role' = 'service_role');
 
 -- Users can update dismissed status
-CREATE POLICY "Users can dismiss priority messages"
-    ON priority_messages
+DROP POLICY IF EXISTS "Users can dismiss priority messages" ON priority_messages;
+CREATE POLICY "Users can dismiss priority messages" ON priority_messages
     FOR UPDATE
     USING (
         EXISTS (
@@ -121,8 +121,8 @@ CREATE POLICY "Users can dismiss priority messages"
 -- ============================================================================
 
 -- Users can view RSVPs in their conversations
-CREATE POLICY "Users can view RSVPs in their conversations"
-    ON rsvp_tracking
+DROP POLICY IF EXISTS "Users can view RSVPs in their conversations" ON rsvp_tracking;
+CREATE POLICY "Users can view RSVPs in their conversations" ON rsvp_tracking
     FOR SELECT
     USING (
         EXISTS (
@@ -133,14 +133,14 @@ CREATE POLICY "Users can view RSVPs in their conversations"
     );
 
 -- Service role can insert RSVPs
-CREATE POLICY "Service role can insert RSVPs"
-    ON rsvp_tracking
+DROP POLICY IF EXISTS "Service role can insert RSVPs" ON rsvp_tracking;
+CREATE POLICY "Service role can insert RSVPs" ON rsvp_tracking
     FOR INSERT
     WITH CHECK (auth.jwt()->>'role' = 'service_role');
 
 -- Users can update their own RSVPs
-CREATE POLICY "Users can update their own RSVPs"
-    ON rsvp_tracking
+DROP POLICY IF EXISTS "Users can update their own RSVPs" ON rsvp_tracking;
+CREATE POLICY "Users can update their own RSVPs" ON rsvp_tracking
     FOR UPDATE
     USING (user_id = auth.uid());
 
@@ -149,8 +149,8 @@ CREATE POLICY "Users can update their own RSVPs"
 -- ============================================================================
 
 -- Users can view deadlines assigned to them or in their conversations
-CREATE POLICY "Users can view their deadlines"
-    ON deadlines
+DROP POLICY IF EXISTS "Users can view their deadlines" ON deadlines;
+CREATE POLICY "Users can view their deadlines" ON deadlines
     FOR SELECT
     USING (
         user_id = auth.uid()
@@ -162,14 +162,14 @@ CREATE POLICY "Users can view their deadlines"
     );
 
 -- Service role can insert deadlines
-CREATE POLICY "Service role can insert deadlines"
-    ON deadlines
+DROP POLICY IF EXISTS "Service role can insert deadlines" ON deadlines;
+CREATE POLICY "Service role can insert deadlines" ON deadlines
     FOR INSERT
     WITH CHECK (auth.jwt()->>'role' = 'service_role');
 
 -- Users can update their own deadlines
-CREATE POLICY "Users can update their own deadlines"
-    ON deadlines
+DROP POLICY IF EXISTS "Users can update their own deadlines" ON deadlines;
+CREATE POLICY "Users can update their own deadlines" ON deadlines
     FOR UPDATE
     USING (user_id = auth.uid());
 
@@ -178,14 +178,14 @@ CREATE POLICY "Users can update their own deadlines"
 -- ============================================================================
 
 -- Users can only see their own reminders
-CREATE POLICY "Users can view their own reminders"
-    ON reminders
+DROP POLICY IF EXISTS "Users can view their own reminders" ON reminders;
+CREATE POLICY "Users can view their own reminders" ON reminders
     FOR SELECT
     USING (user_id = auth.uid());
 
 -- Service role and users can insert reminders
-CREATE POLICY "Users and service role can insert reminders"
-    ON reminders
+DROP POLICY IF EXISTS "Users and service role can insert reminders" ON reminders;
+CREATE POLICY "Users and service role can insert reminders" ON reminders
     FOR INSERT
     WITH CHECK (
         user_id = auth.uid()
@@ -193,14 +193,14 @@ CREATE POLICY "Users and service role can insert reminders"
     );
 
 -- Users can update their own reminders
-CREATE POLICY "Users can update their own reminders"
-    ON reminders
+DROP POLICY IF EXISTS "Users can update their own reminders" ON reminders;
+CREATE POLICY "Users can update their own reminders" ON reminders
     FOR UPDATE
     USING (user_id = auth.uid());
 
 -- Users can delete their own reminders
-CREATE POLICY "Users can delete their own reminders"
-    ON reminders
+DROP POLICY IF EXISTS "Users can delete their own reminders" ON reminders;
+CREATE POLICY "Users can delete their own reminders" ON reminders
     FOR DELETE
     USING (user_id = auth.uid());
 
@@ -209,13 +209,13 @@ CREATE POLICY "Users can delete their own reminders"
 -- ============================================================================
 
 -- Users can view their own usage
-CREATE POLICY "Users can view their own AI usage"
-    ON ai_usage
+DROP POLICY IF EXISTS "Users can view their own AI usage" ON ai_usage;
+CREATE POLICY "Users can view their own AI usage" ON ai_usage
     FOR SELECT
     USING (user_id = auth.uid());
 
 -- Service role can insert usage records
-CREATE POLICY "Service role can insert AI usage"
-    ON ai_usage
+DROP POLICY IF EXISTS "Service role can insert AI usage" ON ai_usage;
+CREATE POLICY "Service role can insert AI usage" ON ai_usage
     FOR INSERT
     WITH CHECK (auth.jwt()->>'role' = 'service_role');

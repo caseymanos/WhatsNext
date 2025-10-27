@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS public.push_config (
 ALTER TABLE public.push_config ENABLE ROW LEVEL SECURITY;
 
 -- Only service role can read/write config
+DROP POLICY IF EXISTS "Service role can manage config" ON public.push_config;
 CREATE POLICY "Service role can manage config"
   ON public.push_config
   FOR ALL

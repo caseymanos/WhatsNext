@@ -5,7 +5,10 @@ struct PriorityMessagesView: View {
     @ObservedObject var viewModel: AIViewModel
 
     private var allPriorityMessages: [PriorityMessage] {
-        viewModel.priorityMessagesByConversation.values
+        // Only include messages from effectiveConversations (selected or all if none selected)
+        viewModel.priorityMessagesByConversation
+            .filter { viewModel.effectiveConversations.contains($0.key) }
+            .values
             .flatMap { $0 }
             .sorted { $0.priority < $1.priority }
     }
@@ -45,6 +48,7 @@ struct PriorityMessagesView: View {
                 priorityRow(message)
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.effectiveConversations)
     }
 
     private func priorityRow(_ message: PriorityMessage) -> some View {

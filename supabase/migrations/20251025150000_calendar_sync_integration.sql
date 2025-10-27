@@ -137,6 +137,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS calendar_sync_settings_updated_at_trigger ON calendar_sync_settings;
 CREATE TRIGGER calendar_sync_settings_updated_at_trigger
     BEFORE UPDATE ON calendar_sync_settings
     FOR EACH ROW
@@ -150,6 +151,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS calendar_sync_queue_updated_at_trigger ON calendar_sync_queue;
 CREATE TRIGGER calendar_sync_queue_updated_at_trigger
     BEFORE UPDATE ON calendar_sync_queue
     FOR EACH ROW

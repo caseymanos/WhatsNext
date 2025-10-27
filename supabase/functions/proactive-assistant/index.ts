@@ -56,7 +56,6 @@ const tools = {
 // Request schema
 const RequestSchema = z.object({
   conversationId: z.string().uuid(),
-  userId: z.string().uuid(),
   query: z.string().optional().describe('Optional specific query from user'),
 });
 
@@ -79,21 +78,19 @@ serve(async (req) => {
 
     // Parse and validate request
     const body = await req.json();
-    const { conversationId, userId, query } = RequestSchema.parse(body);
+    const { conversationId, query } = RequestSchema.parse(body);
 
-    // Ensure authenticated user matches requested userId
-    if (authUserId !== userId) {
-      return new Response(
-        JSON.stringify({ error: 'Cannot run assistant for another user' }),
-        { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
-      );
-    }
+    // Use authenticated user ID from JWT token
+    const userId = authUserId;
 
     // Verify conversation access
+    console.log(`[ProactiveAssistant] Checking access for user ${userId} to conversation ${conversationId}`);
     const hasAccess = await verifyConversationAccess(supabase, userId, conversationId);
+    console.log(`[ProactiveAssistant] Access check result: ${hasAccess}`);
     if (!hasAccess) {
+      console.error(`[ProactiveAssistant] 403-ACCESS-DENIED: user ${userId} not participant in conversation ${conversationId}`);
       return new Response(
-        JSON.stringify({ error: 'Access denied to conversation' }),
+        JSON.stringify({ error: '[ACCESS-DENIED] Access denied to conversation' }),
         { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
       );
     }
@@ -350,14 +347,45 @@ Today's date: ${new Date().toISOString().split('T')[0]}`;
     );
 
   } catch (error) {
-    console.error('Error:', error);
-    logRequest(requestId, 'error', { error: error.message });
+    console.error('[ERROR] ProactiveAssistant function failed:', error);
+    console.error('[ERROR] Stack:', error.stack);
+    logRequest(requestId, 'error', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack?.substring(0, 200) // First 200 chars of stack
+    });
 
-    const status = error.message.includes('Unauthorized') ? 401 :
-                   error.message.includes('Access denied') ? 403 : 500;
+    // Determine status code and user-friendly message
+    let status = 500;
+    let errorMessage = error.message || 'Unknown error occurred';
+
+    if (error.message?.includes('Unauthorized') || error.message?.includes('JWT')) {
+      status = 401;
+      errorMessage = 'Authentication failed. Please sign in again.';
+    } else if (error.message?.includes('Access denied') || error.message?.includes('ACCESS-DENIED') || error.message?.includes('permission')) {
+      status = 403;
+      errorMessage = 'You do not have access to this conversation.';
+      console.error(`[ProactiveAssistant] 403-ERROR-HANDLER: error.message="${error.message}"`);
+    } else if (error.message?.includes('timeout') || error.message?.includes('ETIMEDOUT')) {
+      status = 504;
+      errorMessage = 'Analysis took too long. Try again later.';
+    } else if (error.message?.includes('Rate limit')) {
+      status = 429;
+      errorMessage = 'Too many requests. Please wait a moment and try again.';
+    } else if (error.name === 'ZodError') {
+      status = 400;
+      errorMessage = 'Invalid request parameters.';
+    } else {
+      // Generic error - provide helpful message
+      errorMessage = `Analysis failed: ${error.message}. This may be temporary - try again.`;
+    }
 
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({
+        error: errorMessage,
+        details: error.message,
+        requestId
+      }),
       { status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
     );
   }

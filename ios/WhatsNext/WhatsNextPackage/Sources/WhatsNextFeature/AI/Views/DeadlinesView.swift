@@ -5,7 +5,10 @@ struct DeadlinesView: View {
     @ObservedObject var viewModel: AIViewModel
 
     private var allDeadlines: [Deadline] {
-        viewModel.deadlinesByConversation.values
+        // Only include deadlines from effectiveConversations (selected or all if none selected)
+        viewModel.deadlinesByConversation
+            .filter { viewModel.effectiveConversations.contains($0.key) }
+            .values
             .flatMap { $0 }
             .filter { $0.status == .pending }
             .sorted { $0.deadline < $1.deadline }
@@ -95,6 +98,7 @@ struct DeadlinesView: View {
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.effectiveConversations)
     }
 
     private func deadlineRow(_ deadline: Deadline) -> some View {

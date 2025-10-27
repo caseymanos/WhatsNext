@@ -148,7 +148,7 @@ final class CalendarSyncEngine {
         event: CalendarEvent,
         settings: CalendarSyncSettings
     ) async throws {
-        guard await permissionService.isCalendarAuthorized else {
+        guard await permissionService.isCalendarAuthorizationFullAccess() else {
             throw SyncError.permissionDenied("Apple Calendar")
         }
 
@@ -268,7 +268,7 @@ final class CalendarSyncEngine {
             return
         }
 
-        guard await permissionService.isRemindersAuthorized else {
+        guard await permissionService.isRemindersAuthorizationFullAccess() else {
             throw SyncError.permissionDenied("Apple Reminders")
         }
 
@@ -440,13 +440,29 @@ final class CalendarSyncEngine {
         let settings = try await fetchSyncSettings(userId: userId)
 
         guard settings.appleCalendarEnabled else { return }
-        guard await permissionService.isCalendarAuthorized else { return }
+        guard await permissionService.isCalendarAuthorizationFullAccess() else { return }
 
-        // Get all tracked events for user (only those synced to Apple Calendar)
+        // Get conversations where user is a participant
+        struct ConversationIdRow: Decodable {
+            let conversation_id: UUID
+        }
+
+        let participantRows: [ConversationIdRow] = try await supabase.database
+            .from("conversation_participants")
+            .select("conversation_id")
+            .eq("user_id", value: userId)
+            .execute()
+            .value
+
+        let userConversations = participantRows.map { $0.conversation_id }
+
+        guard !userConversations.isEmpty else { return }
+
+        // Get all tracked events for user's conversations (only those synced to Apple Calendar)
         let trackedEvents: [CalendarEvent] = try await supabase.database
             .from("calendar_events")
             .select()
-            .eq("user_id", value: userId)
+            .in("conversation_id", values: userConversations.map { $0.uuidString })
             .not("apple_calendar_event_id", operator: .is, value: "null")
             .execute()
             .value
@@ -485,7 +501,7 @@ final class CalendarSyncEngine {
         let settings = try await fetchSyncSettings(userId: userId)
 
         guard settings.appleRemindersEnabled else { return }
-        guard await permissionService.isRemindersAuthorized else { return }
+        guard await permissionService.isRemindersAuthorizationFullAccess() else { return }
 
         // Get all tracked reminders for user (only those synced to Apple Reminders)
         let trackedDeadlines: [Deadline] = try await supabase.database

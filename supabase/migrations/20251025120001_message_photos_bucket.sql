@@ -15,21 +15,21 @@ ON CONFLICT (id) DO NOTHING;
 -- ============================================
 
 -- Public read access to all message photos
-CREATE POLICY "Message photos are publicly accessible"
-  ON storage.objects FOR SELECT
+DROP POLICY IF EXISTS "Message photos are publicly accessible" ON storage.objects;
+CREATE POLICY "Message photos are publicly accessible" ON storage.objects FOR SELECT
   USING (bucket_id = 'message-photos');
 
 -- Authenticated users can upload message photos
-CREATE POLICY "Authenticated users can upload message photos"
-  ON storage.objects FOR INSERT
+DROP POLICY IF EXISTS "Authenticated users can upload message photos" ON storage.objects;
+CREATE POLICY "Authenticated users can upload message photos" ON storage.objects FOR INSERT
   WITH CHECK (
     bucket_id = 'message-photos' AND
     auth.role() = 'authenticated'
   );
 
 -- Users can delete their own message photos
-CREATE POLICY "Users can delete their own message photos"
-  ON storage.objects FOR DELETE
+DROP POLICY IF EXISTS "Users can delete their own message photos" ON storage.objects;
+CREATE POLICY "Users can delete their own message photos" ON storage.objects FOR DELETE
   USING (
     bucket_id = 'message-photos' AND
     auth.role() = 'authenticated'

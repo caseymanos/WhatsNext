@@ -1,4 +1,5 @@
 import Foundation
+import Supabase
 #if AI_FEATURES
 
 struct ExtractCalendarEventsRequest: Encodable {
@@ -191,7 +192,6 @@ final class SupabaseAIService: AIServiceProtocol {
 
         let payload = ProactiveAssistantRequest(
             conversationId: conversationId,
-            userId: userId,
             query: query
         )
 
@@ -200,7 +200,40 @@ final class SupabaseAIService: AIServiceProtocol {
                 .invoke("proactive-assistant", options: .init(body: payload))
 
             return response
+        } catch let error as FunctionsError {
+            // Debug logging to see what we're getting
+            print("[SupabaseAIService] proactiveAssistant FunctionsError: \(error)")
+
+            // Extract data from FunctionsError
+            switch error {
+            case .httpError(let code, let data):
+                print("[SupabaseAIService] HTTP Error \(code) with \(data.count) bytes")
+
+                // Try to decode the JSON error response
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let errorMessage = json["error"] as? String {
+                    print("[SupabaseAIService] Extracted error message: \(errorMessage)")
+                    throw SupabaseAIError.backend(errorMessage)
+                }
+
+                // If JSON parsing failed, try raw string
+                if let errorString = String(data: data, encoding: .utf8) {
+                    print("[SupabaseAIService] Raw error response: \(errorString)")
+                    throw SupabaseAIError.backend(errorString)
+                }
+
+                // Fall back to generic message
+                throw SupabaseAIError.backend("Edge Function returned error \(code)")
+
+            case .relayError:
+                throw SupabaseAIError.backend("Function relay error")
+
+            @unknown default:
+                throw SupabaseAIError.backend(error.localizedDescription)
+            }
         } catch {
+            // Handle non-FunctionsError cases
+            print("[SupabaseAIService] Non-FunctionsError: \(error)")
             throw SupabaseAIError.backend(error.localizedDescription)
         }
     }

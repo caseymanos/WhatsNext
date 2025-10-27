@@ -154,10 +154,10 @@ final class MockAIService: AIServiceProtocol {
         )
 
         let toolsUsed = [
-            ProactiveAssistantResponse.ToolExecution(tool: "getRecentMessages", params: nil),
-            ProactiveAssistantResponse.ToolExecution(tool: "getCalendarEvents", params: nil),
-            ProactiveAssistantResponse.ToolExecution(tool: "getPendingRSVPs", params: nil),
-            ProactiveAssistantResponse.ToolExecution(tool: "getDeadlines", params: nil)
+            ProactiveAssistantResponse.ToolExecution(tool: "getRecentMessages"),
+            ProactiveAssistantResponse.ToolExecution(tool: "getCalendarEvents"),
+            ProactiveAssistantResponse.ToolExecution(tool: "getPendingRSVPs"),
+            ProactiveAssistantResponse.ToolExecution(tool: "getDeadlines")
         ]
 
         return ProactiveAssistantResponse(
@@ -165,13 +165,6 @@ final class MockAIService: AIServiceProtocol {
             insights: insights,
             toolsUsed: toolsUsed
         )
-    }
-}
-
-extension ProactiveAssistantResponse.ToolExecution {
-    init(tool: String, params: [String: String]?) {
-        self.tool = tool
-        self.params = params
     }
 }
 

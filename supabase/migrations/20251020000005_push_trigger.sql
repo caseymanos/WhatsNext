@@ -84,6 +84,7 @@ $$;
 -- Create trigger on messages table
 DROP TRIGGER IF EXISTS trigger_notify_message_recipients ON messages;
 
+DROP TRIGGER IF EXISTS trigger_notify_message_recipients ON messages;
 CREATE TRIGGER trigger_notify_message_recipients
   AFTER INSERT ON messages
   FOR EACH ROW

@@ -22,18 +22,25 @@ public struct ProactiveAssistantResponse: Codable {
 
     public struct ToolExecution: Codable {
         public let tool: String
-        public let params: [String: String]?
+        // Params is not strictly typed since it can contain mixed types - ignore it for now
 
         enum CodingKeys: String, CodingKey {
             case tool
-            case params
+        }
+
+        public init(tool: String) {
+            self.tool = tool
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             tool = try container.decode(String.self, forKey: .tool)
-            // Params can be any JSON object, we'll simplify to string dict
-            params = try container.decodeIfPresent([String: String].self, forKey: .params)
+            // Skip params decoding to avoid type mismatch errors
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(tool, forKey: .tool)
         }
     }
 }
@@ -41,12 +48,10 @@ public struct ProactiveAssistantResponse: Codable {
 /// Request to proactive-assistant Edge Function
 public struct ProactiveAssistantRequest: Codable {
     public let conversationId: String
-    public let userId: String
     public let query: String?
 
-    public init(conversationId: UUID, userId: UUID, query: String? = nil) {
+    public init(conversationId: UUID, query: String? = nil) {
         self.conversationId = conversationId.uuidString
-        self.userId = userId.uuidString
         self.query = query
     }
 }

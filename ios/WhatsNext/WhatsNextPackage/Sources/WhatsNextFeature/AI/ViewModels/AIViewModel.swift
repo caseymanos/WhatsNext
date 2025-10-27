@@ -29,6 +29,23 @@ final class AIViewModel: ObservableObject {
     // Current user ID (required for user-specific features)
     var currentUserId: UUID?
 
+    // All available conversation IDs (for "show all" functionality)
+    private(set) var allConversationIds: [UUID] = []
+
+    // Computed property: When no conversations selected, show all
+    var effectiveConversations: Set<UUID> {
+        if selectedConversations.isEmpty {
+            return Set(allConversationIds)
+        }
+        return selectedConversations
+    }
+
+    /// The conversation ID that will be displayed in ConflictDetectionView
+    /// This matches the logic in AITabView where ConflictDetectionView gets the first selected conversation
+    var displayedConflictConversationId: UUID? {
+        selectedConversations.first ?? allConversationIds.first
+    }
+
     private var service: AIServiceProtocol {
         DebugSettings.shared.useLiveAI ? SupabaseAIService() : MockAIService()
     }
@@ -38,8 +55,8 @@ final class AIViewModel: ObservableObject {
 
     // MARK: - Calendar Events
     func analyzeSelectedForEvents() async {
-        guard !selectedConversations.isEmpty else {
-            errorMessage = "Select at least one conversation"
+        guard !effectiveConversations.isEmpty else {
+            errorMessage = "No conversations available"
             return
         }
 
@@ -47,7 +64,7 @@ final class AIViewModel: ObservableObject {
         defer { isAnalyzing = false }
         errorMessage = nil
 
-        for id in selectedConversations {
+        for id in effectiveConversations {
             do {
                 let events = try await service.extractCalendarEvents(conversationId: id)
                 eventsByConversation[id] = events
@@ -59,8 +76,8 @@ final class AIViewModel: ObservableObject {
 
     // MARK: - Decisions
     func analyzeSelectedForDecisions(daysBack: Int = 7) async {
-        guard !selectedConversations.isEmpty else {
-            errorMessage = "Select at least one conversation"
+        guard !effectiveConversations.isEmpty else {
+            errorMessage = "No conversations available"
             return
         }
 
@@ -68,7 +85,7 @@ final class AIViewModel: ObservableObject {
         defer { isAnalyzing = false }
         errorMessage = nil
 
-        for id in selectedConversations {
+        for id in effectiveConversations {
             do {
                 let decisions = try await service.trackDecisions(conversationId: id, daysBack: daysBack)
                 decisionsByConversation[id] = decisions
@@ -80,8 +97,8 @@ final class AIViewModel: ObservableObject {
 
     // MARK: - Priority Messages
     func analyzeSelectedForPriority() async {
-        guard !selectedConversations.isEmpty else {
-            errorMessage = "Select at least one conversation"
+        guard !effectiveConversations.isEmpty else {
+            errorMessage = "No conversations available"
             return
         }
 
@@ -89,7 +106,7 @@ final class AIViewModel: ObservableObject {
         defer { isAnalyzing = false }
         errorMessage = nil
 
-        for id in selectedConversations {
+        for id in effectiveConversations {
             do {
                 let messages = try await service.detectPriority(conversationId: id)
                 priorityMessagesByConversation[id] = messages
@@ -101,8 +118,8 @@ final class AIViewModel: ObservableObject {
 
     // MARK: - RSVPs
     func analyzeSelectedForRSVPs() async {
-        guard !selectedConversations.isEmpty else {
-            errorMessage = "Select at least one conversation"
+        guard !effectiveConversations.isEmpty else {
+            errorMessage = "No conversations available"
             return
         }
 
@@ -115,7 +132,7 @@ final class AIViewModel: ObservableObject {
         defer { isAnalyzing = false }
         errorMessage = nil
 
-        for id in selectedConversations {
+        for id in effectiveConversations {
             do {
                 let (rsvps, _) = try await service.trackRSVPs(conversationId: id, userId: userId)
                 rsvpsByConversation[id] = rsvps
@@ -127,8 +144,8 @@ final class AIViewModel: ObservableObject {
 
     // MARK: - Deadlines
     func analyzeSelectedForDeadlines() async {
-        guard !selectedConversations.isEmpty else {
-            errorMessage = "Select at least one conversation"
+        guard !effectiveConversations.isEmpty else {
+            errorMessage = "No conversations available"
             return
         }
 
@@ -141,7 +158,7 @@ final class AIViewModel: ObservableObject {
         defer { isAnalyzing = false }
         errorMessage = nil
 
-        for id in selectedConversations {
+        for id in effectiveConversations {
             do {
                 let deadlines = try await service.extractDeadlines(conversationId: id, userId: userId)
                 deadlinesByConversation[id] = deadlines
@@ -478,13 +495,13 @@ final class AIViewModel: ObservableObject {
 
     /// Detect scheduling conflicts for selected conversations
     func detectConflictsForSelectedConversations() async {
-        guard !selectedConversations.isEmpty else { return }
+        guard !effectiveConversations.isEmpty else { return }
 
         isDetectingConflicts = true
         defer { isDetectingConflicts = false }
         conflictDetectionError = nil
 
-        for conversationId in selectedConversations {
+        for conversationId in effectiveConversations {
             do {
                 let result = try await conflictDetectionService.detectConflicts(conversationId: conversationId)
                 conflictsByConversation[conversationId] = result.conflicts
@@ -494,17 +511,173 @@ final class AIViewModel: ObservableObject {
         }
     }
 
-    /// Get total count of unresolved conflicts across all conversations
+    /// Get total count of unresolved conflicts for the displayed conversation
+    /// This matches what ConflictDetectionView will show (only the first selected conversation)
     var totalUnresolvedConflictsCount: Int {
-        conflictsByConversation.values
-            .flatMap { $0 }
+        guard let conversationId = displayedConflictConversationId else { return 0 }
+
+        return conflictsByConversation[conversationId]?
             .filter { $0.status != .resolved }
-            .count
+            .count ?? 0
     }
 
     /// Get conflicts for a specific conversation
     func conflicts(for conversationId: UUID) -> [SchedulingConflict] {
         conflictsByConversation[conversationId] ?? []
+    }
+
+    // MARK: - Conversation Management & Cached Loading
+
+    /// Set available conversations (for "show all" functionality)
+    func setAvailableConversations(_ ids: [UUID]) {
+        allConversationIds = ids
+    }
+
+    /// Load all insights from database (instant - already parsed by backend)
+    func loadAllInsights() async {
+        guard let userId = currentUserId else { return }
+        let conversationIds = Array(effectiveConversations)
+
+        // Load cached insights from database in parallel
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.loadCachedEvents(for: conversationIds) }
+            group.addTask { await self.loadCachedDecisions(for: conversationIds) }
+            group.addTask { await self.loadCachedPriorityMessages(for: conversationIds) }
+            group.addTask { await self.loadCachedRSVPs(for: conversationIds, userId: userId) }
+            group.addTask { await self.loadCachedDeadlines(for: conversationIds, userId: userId) }
+            group.addTask { await self.loadCachedConflicts(for: conversationIds) }
+        }
+    }
+
+    /// Load cached events from database
+    private func loadCachedEvents(for conversationIds: [UUID]) async {
+        let supabase = SupabaseClientService.shared
+
+        for convId in conversationIds {
+            do {
+                let events: [CalendarEvent] = try await supabase.database
+                    .from("calendar_events")
+                    .select()
+                    .eq("conversation_id", value: convId)
+                    .order("date", ascending: true)
+                    .execute()
+                    .value
+
+                eventsByConversation[convId] = events
+            } catch {
+                print("Failed to load cached events for conversation \(convId): \(error)")
+            }
+        }
+    }
+
+    /// Load cached decisions from database
+    private func loadCachedDecisions(for conversationIds: [UUID]) async {
+        let supabase = SupabaseClientService.shared
+
+        for convId in conversationIds {
+            do {
+                let decisions: [Decision] = try await supabase.database
+                    .from("decisions")
+                    .select()
+                    .eq("conversation_id", value: convId)
+                    .order("created_at", ascending: false)
+                    .execute()
+                    .value
+
+                decisionsByConversation[convId] = decisions
+            } catch {
+                print("Failed to load cached decisions for conversation \(convId): \(error)")
+            }
+        }
+    }
+
+    /// Load cached priority messages from database
+    private func loadCachedPriorityMessages(for conversationIds: [UUID]) async {
+        let supabase = SupabaseClientService.shared
+
+        for convId in conversationIds {
+            do {
+                let messages: [PriorityMessage] = try await supabase.database
+                    .from("priority_messages")
+                    .select()
+                    .eq("conversation_id", value: convId)
+                    .order("created_at", ascending: false)
+                    .execute()
+                    .value
+
+                priorityMessagesByConversation[convId] = messages
+            } catch {
+                print("Failed to load cached priority messages for conversation \(convId): \(error)")
+            }
+        }
+    }
+
+    /// Load cached RSVPs from database
+    private func loadCachedRSVPs(for conversationIds: [UUID], userId: UUID) async {
+        let supabase = SupabaseClientService.shared
+
+        for convId in conversationIds {
+            do {
+                let rsvps: [RSVPTracking] = try await supabase.database
+                    .from("rsvp_tracking")
+                    .select()
+                    .eq("conversation_id", value: convId)
+                    .eq("user_id", value: userId)
+                    .order("created_at", ascending: false)
+                    .execute()
+                    .value
+
+                rsvpsByConversation[convId] = rsvps
+            } catch {
+                print("Failed to load cached RSVPs for conversation \(convId): \(error)")
+            }
+        }
+    }
+
+    /// Load cached deadlines from database
+    private func loadCachedDeadlines(for conversationIds: [UUID], userId: UUID) async {
+        let supabase = SupabaseClientService.shared
+
+        for convId in conversationIds {
+            do {
+                let deadlines: [Deadline] = try await supabase.database
+                    .from("deadlines")
+                    .select()
+                    .eq("conversation_id", value: convId)
+                    .eq("user_id", value: userId)
+                    .order("deadline", ascending: true)
+                    .execute()
+                    .value
+
+                deadlinesByConversation[convId] = deadlines
+            } catch {
+                print("Failed to load cached deadlines for conversation \(convId): \(error)")
+            }
+        }
+    }
+
+    /// Load cached conflicts from database
+    private func loadCachedConflicts(for conversationIds: [UUID]) async {
+        let supabase = SupabaseClientService.shared
+
+        for convId in conversationIds {
+            do {
+                let responses: [SchedulingConflictResponse] = try await supabase.database
+                    .from("scheduling_conflicts")
+                    .select()
+                    .eq("conversation_id", value: convId.uuidString)
+                    .eq("status", value: "unresolved")
+                    .order("severity", ascending: false)
+                    .execute()
+                    .value
+
+                // Convert responses to domain models
+                let conflicts = try responses.map { try $0.toDomain() }
+                conflictsByConversation[convId] = conflicts
+            } catch {
+                print("Failed to load cached conflicts for conversation \(convId): \(error)")
+            }
+        }
     }
 }
 

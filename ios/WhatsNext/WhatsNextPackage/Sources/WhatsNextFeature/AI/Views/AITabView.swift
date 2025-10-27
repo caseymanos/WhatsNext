@@ -68,11 +68,23 @@ struct AITabView: View {
                 await loadConversations()
                 if let userId = authViewModel.currentUser?.id {
                     vm.currentUserId = userId
+                    // Set available conversations for "show all" functionality
+                    vm.setAvailableConversations(conversations.map(\.id))
+                    // Load cached insights instantly
+                    await vm.loadAllInsights()
                     await vm.loadSyncSettings()
                 }
             }
             .refreshable {
                 await loadConversations()
+                vm.setAvailableConversations(conversations.map(\.id))
+                await vm.loadAllInsights()
+            }
+            .onChange(of: vm.selectedConversations) { oldValue, newValue in
+                // Reload insights when selection changes
+                Task {
+                    await vm.loadAllInsights()
+                }
             }
         }
     }
@@ -140,33 +152,9 @@ struct AITabView: View {
                     .padding(.horizontal)
                 }
                 .frame(height: 60)
-
-                if !vm.selectedConversations.isEmpty {
-                    analyzeButton
-                }
             }
             .padding(.vertical, 8)
         }
-    }
-
-    private var analyzeButton: some View {
-        Button {
-            Task {
-                await analyzeForSelectedFeature()
-            }
-        } label: {
-            HStack {
-                Image(systemName: "sparkles")
-                Text("Analyze \(vm.selectedConversations.count) conversation(s)")
-            }
-            .font(.subheadline.bold())
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(Color.blue)
-            .foregroundStyle(.white)
-            .cornerRadius(8)
-        }
-        .disabled(vm.isAnalyzing)
     }
 
     private func conversationChip(_ conversation: Conversation) -> some View {
@@ -228,7 +216,9 @@ struct AITabView: View {
                 emptyStateView(icon: "calendar", message: "No events found")
             } else {
                 List {
-                    ForEach(Array(vm.eventsByConversation.keys), id: \.self) { convId in
+                    // Only show events for effectiveConversations (selected or all if none selected)
+                    // Sort conversations for consistent display order
+                    ForEach(Array(vm.effectiveConversations).sorted(), id: \.self) { convId in
                         if let events = vm.eventsByConversation[convId], !events.isEmpty {
                             Section(header: conversationHeader(convId)) {
                                 ForEach(events) { event in
@@ -238,6 +228,7 @@ struct AITabView: View {
                         }
                     }
                 }
+                .animation(.easeInOut(duration: 0.3), value: vm.effectiveConversations)
             }
         }
     }
@@ -317,28 +308,6 @@ struct AITabView: View {
             conversations = try await service.fetchConversations(userId: userId)
         } catch {
             print("Failed to load conversations for AI: \(error)")
-        }
-    }
-
-    private func analyzeForSelectedFeature() async {
-        switch selectedFeature {
-        case .events:
-            await vm.analyzeSelectedForEvents()
-        case .decisions:
-            await vm.analyzeSelectedForDecisions()
-        case .priority:
-            await vm.analyzeSelectedForPriority()
-        case .rsvps:
-            await vm.analyzeSelectedForRSVPs()
-        case .deadlines:
-            await vm.analyzeSelectedForDeadlines()
-        case .conflicts:
-            // Conflicts are handled by ConflictDetectionView directly
-            break
-        case .assistant:
-            if let firstConv = vm.selectedConversations.first ?? conversations.first?.id {
-                await vm.runProactiveAssistant(conversationId: firstConv)
-            }
         }
     }
 

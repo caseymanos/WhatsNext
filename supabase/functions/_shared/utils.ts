@@ -105,20 +105,31 @@ export async function logUsage(
 
 /**
  * Verify user is a participant in the conversation
+ * Uses service client to bypass RLS (safe since we're doing explicit user_id check)
  */
 export async function verifyConversationAccess(
   supabase: SupabaseClient,
   userId: string,
   conversationId: string
 ): Promise<boolean> {
-  const { data, error } = await supabase
+  console.log(`[verifyConversationAccess] Checking user ${userId} for conversation ${conversationId}`);
+
+  // Use service client to avoid RLS issues with conversation_participants
+  const serviceClient = createServiceClient();
+
+  const { data, error } = await serviceClient
     .from('conversation_participants')
     .select('user_id')
     .eq('conversation_id', conversationId)
     .eq('user_id', userId)
     .single();
 
-  return !error && !!data;
+  console.log(`[verifyConversationAccess] Result - data:`, data, `error:`, error);
+
+  const hasAccess = !error && !!data;
+  console.log(`[verifyConversationAccess] Final result: ${hasAccess}`);
+
+  return hasAccess;
 }
 
 /**

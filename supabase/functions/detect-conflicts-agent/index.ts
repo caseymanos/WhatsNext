@@ -33,35 +33,64 @@ serve(async (req) => {
   try {
     logRequest(requestId, 'start', { method: req.method });
 
-    // Authenticate user
-    const supabase = createAuthenticatedClient(req);
-    const userId = await getUserId(supabase);
-
-    logRequest(requestId, 'authenticated', { userId });
-
-    // Parse and validate request
+    // Parse request body once (can only read once!)
     const body = await req.json();
     const { conversationId, startDate, endDate, daysAhead } = RequestSchema.parse(body);
 
-    // Verify conversation access
-    const hasAccess = await verifyConversationAccess(supabase, userId, conversationId);
-    if (!hasAccess) {
-      return new Response(
-        JSON.stringify({ error: 'Access denied to conversation' }),
-        { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
-      );
-    }
+    // Check if this is a service role request (from trigger) or user request
+    const authHeader = req.headers.get('Authorization') || '';
+    const isServiceRole = authHeader.includes(Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '');
 
-    // Check rate limit (allow 20 calls per hour for conflict detection)
-    const { allowed, count } = await checkRateLimit(supabase, userId, 'detect-conflicts', 20);
-    if (!allowed) {
-      return new Response(
-        JSON.stringify({ error: 'Rate limit exceeded', count }),
-        { status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
-      );
-    }
+    let supabase;
+    let userId;
 
-    logRequest(requestId, 'rate_check', { count, allowed });
+    if (isServiceRole) {
+      // Service role request (from trigger) - use service client
+      console.log('[ConflictDetection] Service role request detected');
+      supabase = createServiceClient();
+
+      // Get first participant of conversation as userId for context
+      const { data: participant } = await supabase
+        .from('conversation_participants')
+        .select('user_id')
+        .eq('conversation_id', conversationId)
+        .limit(1)
+        .single();
+
+      userId = participant?.user_id;
+
+      if (!userId) {
+        throw new Error('No participants found for conversation');
+      }
+
+      logRequest(requestId, 'service_role', { userId, conversationId });
+    } else {
+      // Regular user request - authenticate normally
+      supabase = createAuthenticatedClient(req);
+      userId = await getUserId(supabase);
+
+      logRequest(requestId, 'authenticated', { userId });
+
+      // Verify conversation access
+      const hasAccess = await verifyConversationAccess(supabase, userId, conversationId);
+      if (!hasAccess) {
+        return new Response(
+          JSON.stringify({ error: 'Access denied to conversation' }),
+          { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
+        );
+      }
+
+      // Check rate limit (allow 100 calls per hour for conflict detection - most are instant cache hits)
+      const { allowed, count } = await checkRateLimit(supabase, userId, 'detect-conflicts', 100);
+      if (!allowed) {
+        return new Response(
+          JSON.stringify({ error: 'Rate limit exceeded', count }),
+          { status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
+        );
+      }
+
+      logRequest(requestId, 'rate_check', { count, allowed });
+    }
 
     // Calculate date range
     const today = startDate ? new Date(startDate) : new Date();
@@ -76,11 +105,98 @@ serve(async (req) => {
     // Create execution context for tools
     const serviceClient = createServiceClient();
     const toolContext = {
-      supabase,
+      supabase: serviceClient,  // Always use service client for tool execution
       serviceClient,
       userId,
       conversationId,
     };
+
+    // ========================================================================
+    // SMART CACHING: Check if events changed since last analysis
+    // ========================================================================
+    console.log('[CACHE-CHECK] Checking if conflict analysis is needed');
+
+    // Get last conflict analysis timestamp
+    const { data: conversation, error: convError } = await serviceClient
+      .from('conversations')
+      .select('ai_last_analysis')
+      .eq('id', conversationId)
+      .single();
+
+    if (convError) {
+      console.error('[CACHE-CHECK] Failed to fetch conversation:', convError);
+    }
+
+    const lastAnalysisStr = conversation?.ai_last_analysis?.['detect-conflicts'];
+    console.log(`[CACHE-CHECK] Last analysis: ${lastAnalysisStr || 'never'}`);
+
+    // Get latest event update timestamp
+    const { data: latestEvent, error: eventError } = await serviceClient
+      .from('calendar_events')
+      .select('updated_at')
+      .eq('conversation_id', conversationId)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (eventError && eventError.code !== 'PGRST116') {  // PGRST116 = no rows
+      console.error('[CACHE-CHECK] Failed to fetch latest event:', eventError);
+    }
+
+    const latestEventUpdate = latestEvent?.updated_at;
+    console.log(`[CACHE-CHECK] Latest event update: ${latestEventUpdate || 'none'}`);
+
+    // If we have a last analysis AND no events changed since then, return cached conflicts
+    if (lastAnalysisStr && latestEventUpdate) {
+      const lastAnalysisDate = new Date(lastAnalysisStr);
+      const latestEventDate = new Date(latestEventUpdate);
+
+      if (lastAnalysisDate >= latestEventDate) {
+        console.log('[CACHE-CHECK] ✅ Events unchanged, returning cached conflicts');
+
+        // Fetch cached conflicts
+        const { data: cachedConflicts } = await serviceClient
+          .from('scheduling_conflicts')
+          .select('*')
+          .eq('conversation_id', conversationId)
+          .eq('user_id', userId)
+          .eq('status', 'unresolved')
+          .order('severity', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        logRequest(requestId, 'cache_hit', {
+          conflictsCount: cachedConflicts?.length || 0,
+          lastAnalysis: lastAnalysisStr,
+          latestEventUpdate
+        });
+
+        await logUsage(supabase, userId, 'detect-conflicts');
+
+        return new Response(
+          JSON.stringify({
+            summary: 'Conflicts loaded from cache (no events changed since last analysis)',
+            conflicts: cachedConflicts || [],
+            detectedCount: cachedConflicts?.length || 0,
+            stats: {
+              stepsUsed: 0,
+              dateRange: { startDate: startDateStr, endDate: endDateStr },
+              analysisComplete: true,
+              cached: true
+            },
+            toolCalls: []
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
+        );
+      } else {
+        console.log('[CACHE-CHECK] ⚠️ Events changed, running fresh analysis');
+        logRequest(requestId, 'cache_miss', { reason: 'events_updated' });
+      }
+    } else {
+      console.log('[CACHE-CHECK] ⚠️ No previous analysis or no events, running fresh analysis');
+      logRequest(requestId, 'cache_miss', { reason: 'first_run_or_no_events' });
+    }
 
     // ========================================================================
     // PRE-PROCESSING: Deterministic same-time conflict detection
@@ -216,25 +332,35 @@ Provide a clear, actionable summary focusing on:
 Current date: ${today.toISOString().split('T')[0]}
 Analysis period: ${daysAhead} days (${startDateStr} to ${endDateStr})`;
 
-    // Run the agent with automatic tool calling loop
+    // Run the agent with automatic tool calling loop (reduced maxSteps to avoid timeout)
+    console.log('[AI-AGENT] Starting conflict detection analysis');
+    const analysisStartTime = Date.now();
+
     const result = await generateText({
       model: openai('gpt-4o'),
       tools: boundTools,
-      maxSteps: 30, // Allow up to 30 tool calls for thorough analysis
+      maxSteps: 20, // Reduced from 30 to avoid 60s timeout (each step ~2-3s)
       system: systemPrompt,
       prompt: `Analyze the schedule for conflicts and provide a comprehensive report. Check EVERY event pair and store ALL conflicts found, no matter how minor.`,
       onStepFinish: ({ stepType, toolCalls, toolResults }) => {
+        const elapsed = ((Date.now() - analysisStartTime) / 1000).toFixed(1);
+        console.log(`[AI-AGENT] Step complete (${elapsed}s elapsed)`);
+
         if (toolCalls) {
           toolCalls.forEach((call, idx) => {
             logRequest(requestId, 'tool_executed', {
               tool: call.toolName,
               args: call.args,
-              result: toolResults?.[idx]
+              result: toolResults?.[idx],
+              elapsedSeconds: elapsed
             });
           });
         }
       },
     });
+
+    const totalElapsed = ((Date.now() - analysisStartTime) / 1000).toFixed(1);
+    console.log(`[AI-AGENT] Analysis complete in ${totalElapsed}s`);
 
     logRequest(requestId, 'agent_complete', {
       stepsUsed: result.toolCalls?.length || 0,
@@ -259,6 +385,20 @@ Analysis period: ${daysAhead} days (${startDateStr} to ${endDateStr})`;
     // Log usage
     await logUsage(supabase, userId, 'detect-conflicts');
 
+    // Update analysis timestamp for caching
+    const now = new Date().toISOString();
+    await serviceClient
+      .from('conversations')
+      .update({
+        ai_last_analysis: {
+          ...conversation?.ai_last_analysis,
+          'detect-conflicts': now
+        }
+      })
+      .eq('id', conversationId);
+
+    console.log(`[CACHE-UPDATE] Updated last analysis timestamp to: ${now}`);
+
     logRequest(requestId, 'complete', {
       conflictsDetected: detectedConflicts.length,
       conflictsStored: storedConflicts?.length || 0
@@ -272,7 +412,8 @@ Analysis period: ${daysAhead} days (${startDateStr} to ${endDateStr})`;
         stats: {
           stepsUsed: result.toolCalls?.length || 0,
           dateRange: { startDate: startDateStr, endDate: endDateStr },
-          analysisComplete: true
+          analysisComplete: true,
+          cached: false
         },
         toolCalls: result.toolCalls?.map((call: any) => ({
           tool: call.toolName,
@@ -283,14 +424,44 @@ Analysis period: ${daysAhead} days (${startDateStr} to ${endDateStr})`;
     );
 
   } catch (error) {
-    console.error('Error:', error);
-    logRequest(requestId, 'error', { error: error.message });
+    console.error('[ERROR] Function failed:', error);
+    console.error('[ERROR] Stack:', error.stack);
+    logRequest(requestId, 'error', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack?.substring(0, 200) // First 200 chars of stack
+    });
 
-    const status = error.message.includes('Unauthorized') ? 401 :
-                   error.message.includes('Access denied') ? 403 : 500;
+    // Determine status code
+    let status = 500;
+    let errorMessage = error.message || 'Unknown error occurred';
+
+    if (error.message?.includes('Unauthorized') || error.message?.includes('JWT')) {
+      status = 401;
+      errorMessage = 'Authentication failed. Please sign in again.';
+    } else if (error.message?.includes('Access denied') || error.message?.includes('permission')) {
+      status = 403;
+      errorMessage = 'You do not have access to this conversation.';
+    } else if (error.message?.includes('timeout') || error.message?.includes('ETIMEDOUT')) {
+      status = 504;
+      errorMessage = 'Analysis took too long. Try again with fewer events or a shorter time range.';
+    } else if (error.message?.includes('Rate limit')) {
+      status = 429;
+      errorMessage = 'Too many requests. Please wait a moment and try again.';
+    } else if (error.name === 'ZodError') {
+      status = 400;
+      errorMessage = 'Invalid request parameters.';
+    } else {
+      // Generic error - provide helpful message
+      errorMessage = `Analysis failed: ${error.message}. This may be temporary - try again.`;
+    }
 
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({
+        error: errorMessage,
+        details: error.message,
+        requestId
+      }),
       { status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
     );
   }
