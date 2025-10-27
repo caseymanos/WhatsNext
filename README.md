@@ -2,6 +2,33 @@
 
 A modern iOS messaging application with AI-powered assistance, built with SwiftUI and Supabase.
 
+## Quick Demo (2 Minutes)
+
+Want to try the app right away? Follow these steps:
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/caseymanos/WhatsNext.git
+   cd WhatsNext
+   ```
+
+2. **Set up configuration**
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Open in Xcode**
+   ```bash
+   open ios/WhatsNext/WhatsNext.xcworkspace
+   ```
+
+4. **Run the app**
+   - Select any iPhone simulator (e.g., iPhone 16 Pro)
+   - Press `⌘ + R` or click the Play button
+   - Create a test account and start exploring!
+
+**Note**: The demo is pre-configured with a shared backend, so AI features work immediately. All demo users share the same database.
+
 ## Overview
 
 WhatsNext is a feature-rich messaging app that combines traditional chat functionality with intelligent AI capabilities. The app provides seamless real-time communication with proactive AI assistance to help users manage their conversations, schedules, and important messages.
