@@ -215,6 +215,19 @@ struct AITabView: View {
         Group {
             if vm.isAnalyzing {
                 ProgressView("Finding events...")
+            } else if let progress = vm.syncProgress {
+                VStack(spacing: 12) {
+                    ProgressView(value: Double(progress.current), total: Double(progress.total))
+                        .padding(.horizontal, 40)
+                    Text("Syncing \(progress.current) of \(progress.total)")
+                        .font(.headline)
+                    Text(progress.currentItem)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
             } else if vm.eventsByConversation.isEmpty {
                 emptyStateView(icon: "calendar", message: "No events found")
             } else {
@@ -374,17 +387,7 @@ struct AITabView: View {
     private func handleEventTap(_ event: CalendarEvent) {
         print("🎯 Event tapped: \(event.title)")
 
-        guard let eventId = event.appleCalendarEventId else {
-            // Event not synced yet - show message
-            print("⚠️ Event not synced yet")
-            alertMessage = "This event hasn't been synced to your Calendar yet. Go to Settings (gear icon) to enable calendar sync."
-            showingAlert = true
-            return
-        }
-
-        print("✅ Event has ID: \(eventId)")
-
-        // Get the root view controller
+        // Get the root view controller first (needed for both sync and opening)
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootViewController = windowScene.windows.first?.rootViewController else {
             print("❌ Could not get root view controller")
@@ -399,12 +402,36 @@ struct AITabView: View {
             topController = presented
         }
 
-        print("🚀 Opening event in Calendar app")
-
-        // Open the event in Calendar app
         Task {
+            var eventId = event.appleCalendarEventId
+
+            // If event not synced yet, create it automatically
+            if eventId == nil {
+                print("⚙️ Event not synced yet - auto-syncing to Calendar")
+                do {
+                    eventId = try await vm.createEventInCalendar(event)
+                    print("✅ Event created with ID: \(eventId!)")
+
+                    // Update local event object to prevent duplicates on next tap
+                    await MainActor.run {
+                        vm.updateEventWithSyncId(eventId: event.id, appleCalendarEventId: eventId!)
+                    }
+                } catch {
+                    await MainActor.run {
+                        print("❌ Failed to create event: \(error)")
+                        alertMessage = "Failed to create event in Calendar: \(error.localizedDescription)"
+                        showingAlert = true
+                    }
+                    return
+                }
+            } else {
+                print("✅ Event already synced with ID: \(eventId!)")
+            }
+
+            // Now open the event in Calendar app
+            print("🚀 Opening event in Calendar app")
             do {
-                try await eventKitUIService.openEvent(eventId: eventId, from: topController)
+                try await eventKitUIService.openEvent(eventId: eventId!, from: topController)
             } catch {
                 await MainActor.run {
                     print("❌ Failed to open event: \(error)")

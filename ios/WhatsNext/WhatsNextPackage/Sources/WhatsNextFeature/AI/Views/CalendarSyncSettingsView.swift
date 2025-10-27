@@ -356,6 +356,15 @@ struct CalendarSyncSettingsView: View {
 
         if settings == nil {
             errorMessage = "Failed to load sync settings"
+            return
+        }
+
+        // Proactively request permissions if sync is enabled
+        if settings?.appleCalendarEnabled == true {
+            await requestCalendarPermission { }
+        }
+        if settings?.appleRemindersEnabled == true {
+            await requestRemindersPermission { }
         }
     }
 

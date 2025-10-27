@@ -20,6 +20,14 @@ final class AIViewModel: ObservableObject {
     @Published var syncSettings: CalendarSyncSettings?
     @Published var isSyncing = false
     @Published var syncErrorMessage: String?
+    @Published var syncProgress: SyncProgress?
+
+    // Sync progress tracking
+    public struct SyncProgress {
+        public var current: Int
+        public var total: Int
+        public var currentItem: String
+    }
 
     // Current user ID (required for user-specific features)
     var currentUserId: UUID?
@@ -41,13 +49,21 @@ final class AIViewModel: ObservableObject {
         defer { isAnalyzing = false }
         errorMessage = nil
 
+        var allExtractedEvents: [CalendarEvent] = []
+
         for id in selectedConversations {
             do {
                 let events = try await service.extractCalendarEvents(conversationId: id)
                 eventsByConversation[id] = events
+                allExtractedEvents.append(contentsOf: events)
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+
+        // Auto-sync after extraction if enabled
+        if let settings = syncSettings, settings.autoSyncEnabled, !allExtractedEvents.isEmpty {
+            await autoSyncEvents(allExtractedEvents)
         }
     }
 
@@ -221,7 +237,40 @@ final class AIViewModel: ObservableObject {
         syncSettings = settings
     }
 
-    /// Auto-sync events and deadlines if enabled
+    /// Auto-sync events with progress tracking
+    private func autoSyncEvents(_ events: [CalendarEvent]) async {
+        guard let userId = currentUserId else { return }
+        guard let settings = syncSettings, settings.hasAnySyncEnabled else { return }
+
+        // Filter to only pending events (not yet synced)
+        let pendingEvents = events.filter { $0.appleCalendarEventId == nil && $0.googleCalendarEventId == nil }
+        guard !pendingEvents.isEmpty else { return }
+
+        isSyncing = true
+        defer {
+            isSyncing = false
+            syncProgress = nil
+        }
+        syncErrorMessage = nil
+
+        for (index, event) in pendingEvents.enumerated() {
+            // Update progress
+            syncProgress = SyncProgress(
+                current: index + 1,
+                total: pendingEvents.count,
+                currentItem: event.title
+            )
+
+            do {
+                try await syncEngine.syncCalendarEvent(event, userId: userId)
+            } catch {
+                syncErrorMessage = error.localizedDescription
+                // Continue syncing remaining events even if one fails
+            }
+        }
+    }
+
+    /// Auto-sync events and deadlines if enabled (used by analyzeAll)
     private func autoSyncIfEnabled(events: [CalendarEvent], deadlines: [Deadline]) async {
         guard let userId = currentUserId else { return }
         guard let settings = syncSettings else { return }
@@ -272,6 +321,56 @@ final class AIViewModel: ObservableObject {
             }
         } catch {
             syncErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// Create event in Apple Calendar and return the event ID
+    /// This is for the tap-to-open flow where we auto-sync before opening
+    func createEventInCalendar(_ event: CalendarEvent) async throws -> String {
+        guard let settings = syncSettings else {
+            throw NSError(domain: "AIViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Sync settings not found"])
+        }
+
+        guard settings.appleCalendarEnabled else {
+            throw NSError(domain: "AIViewModel", code: 2, userInfo: [NSLocalizedDescriptionKey: "Apple Calendar sync is not enabled"])
+        }
+
+        // Get calendar name from category mapping
+        let calendarName = settings.calendarName(for: event.category.rawValue)
+
+        // Create event in Calendar app
+        let eventKitService = EventKitService()
+        let eventId = try await eventKitService.createEvent(from: event, calendarName: calendarName)
+
+        // Update database with the external ID
+        let supabase = SupabaseClientService.shared
+        try await supabase.database
+            .from("calendar_events")
+            .update(["apple_calendar_event_id": eventId])
+            .eq("id", value: event.id)
+            .execute()
+
+        return eventId
+    }
+
+    /// Update a specific event with its Apple Calendar ID after syncing
+    /// This prevents duplicate calendar entries when tapping the same event multiple times
+    func updateEventWithSyncId(eventId: UUID, appleCalendarEventId: String) {
+        // Find the event in the dictionary and update it
+        for (convId, events) in eventsByConversation {
+            if let index = events.firstIndex(where: { $0.id == eventId }) {
+                var updatedEvent = events[index]
+                updatedEvent.appleCalendarEventId = appleCalendarEventId
+                updatedEvent.syncStatus = "synced"
+
+                // Update the array with the modified event
+                var updatedEvents = events
+                updatedEvents[index] = updatedEvent
+                eventsByConversation[convId] = updatedEvents
+
+                print("✅ Updated local event with sync ID: \(appleCalendarEventId)")
+                return
+            }
         }
     }
 
