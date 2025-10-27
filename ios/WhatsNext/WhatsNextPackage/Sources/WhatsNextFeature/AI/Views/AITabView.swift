@@ -8,6 +8,10 @@ struct AITabView: View {
     @State private var isLoadingConversations = false
     @State private var selectedFeature: AIFeature = .events
     @State private var showSyncSettings = false
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
+
+    private let eventKitUIService = EventKitUIService.shared
 
     enum AIFeature: String, CaseIterable {
         case events = "Events"
@@ -41,17 +45,26 @@ struct AITabView: View {
                 featureContent
             }
             .navigationTitle("AI Insights")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        print("🔧 Settings button tapped")
                         showSyncSettings = true
                     } label: {
-                        Image(systemName: "calendar.badge.gearshape")
+                        Image(systemName: "gearshape")
+                            .font(.title3)
+                            .foregroundStyle(.blue)
                     }
                 }
             }
             .sheet(isPresented: $showSyncSettings) {
                 CalendarSyncSettingsView(viewModel: vm)
+            }
+            .alert("Calendar Action", isPresented: $showingAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage)
             }
             .task {
                 await loadConversations()
@@ -229,35 +242,42 @@ struct AITabView: View {
     }
 
     private func eventRow(_ event: CalendarEvent) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(event.title).font(.headline)
-                HStack {
-                    Text(event.date, style: .date)
-                    if let time = event.time {
-                        Text("•")
-                        Text(time)
+        Button {
+            print("🟢 EVENT TAPPED: \(event.title)")
+            handleEventTap(event)
+        } label: {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(event.title).font(.headline)
+                    HStack {
+                        Text(event.date, style: .date)
+                        if let time = event.time {
+                            Text("•")
+                            Text(time)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    if let location = event.location {
+                        Label(location, systemImage: "location")
+                            .font(.caption)
+                    }
+                    if let description = event.description {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if let location = event.location {
-                    Label(location, systemImage: "location")
-                        .font(.caption)
-                }
-                if let description = event.description {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
+
+                Spacer()
+
+                // Sync status indicator
+                syncStatusBadge(event.parsedSyncStatus)
             }
-
-            Spacer()
-
-            // Sync status indicator
-            syncStatusBadge(event.parsedSyncStatus)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
     }
 
     private func syncStatusBadge(_ status: SyncStatus) -> some View {
@@ -347,6 +367,52 @@ struct AITabView: View {
         let firstName = components[0]
         let lastNameInitial = components[1].prefix(1)
         return "\(firstName) \(lastNameInitial)."
+    }
+
+    // MARK: - Event Tap Handler
+
+    private func handleEventTap(_ event: CalendarEvent) {
+        print("🎯 Event tapped: \(event.title)")
+
+        guard let eventId = event.appleCalendarEventId else {
+            // Event not synced yet - show message
+            print("⚠️ Event not synced yet")
+            alertMessage = "This event hasn't been synced to your Calendar yet. Go to Settings (gear icon) to enable calendar sync."
+            showingAlert = true
+            return
+        }
+
+        print("✅ Event has ID: \(eventId)")
+
+        // Get the root view controller
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootViewController = windowScene.windows.first?.rootViewController else {
+            print("❌ Could not get root view controller")
+            alertMessage = "Unable to open Calendar app"
+            showingAlert = true
+            return
+        }
+
+        // Find the topmost presented view controller
+        var topController = rootViewController
+        while let presented = topController.presentedViewController {
+            topController = presented
+        }
+
+        print("🚀 Opening event in Calendar app")
+
+        // Open the event in Calendar app
+        Task {
+            do {
+                try await eventKitUIService.openEvent(eventId: eventId, from: topController)
+            } catch {
+                await MainActor.run {
+                    print("❌ Failed to open event: \(error)")
+                    alertMessage = "Failed to open event: \(error.localizedDescription)"
+                    showingAlert = true
+                }
+            }
+        }
     }
 }
 

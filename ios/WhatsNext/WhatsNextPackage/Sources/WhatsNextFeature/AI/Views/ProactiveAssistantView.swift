@@ -166,31 +166,35 @@ struct ProactiveAssistantView: View {
     }
 
     private func eventCard(_ event: CalendarEvent) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(event.title)
-                        .font(.subheadline.bold())
-                    Text(event.date, style: .date)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if event.isSynced {
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        Button {
+            print("🟢 BUTTON TAPPED for event: \(event.title)")
+            handleEventTap(event)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(event.title)
+                            .font(.subheadline.bold())
+                        Text(event.date, style: .date)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if event.isSynced {
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(Color.blue.opacity(0.1))
+            .cornerRadius(8)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(Color.blue.opacity(0.1))
-        .cornerRadius(8)
-        .onTapGesture {
-            handleEventTap(event)
-        }
+        .buttonStyle(.plain)
     }
 
     private func rsvpCard(_ rsvp: RSVPTracking) -> some View {
@@ -211,59 +215,67 @@ struct ProactiveAssistantView: View {
     }
 
     private func deadlineCard(_ deadline: Deadline) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(deadline.task)
-                        .font(.subheadline.bold())
-                    Text(deadline.deadline, style: .relative)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+        Button {
+            print("🟢 BUTTON TAPPED for deadline: \(deadline.task)")
+            handleDeadlineTap(deadline)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(deadline.task)
+                            .font(.subheadline.bold())
+                        Text(deadline.deadline, style: .relative)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    Spacer()
+                    if deadline.isSynced {
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                Spacer()
-                if deadline.isSynced {
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(Color.red.opacity(0.1))
+            .cornerRadius(8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func conflictCard(_ conflict: ProactiveAssistantResponse.SchedulingConflict) -> some View {
+        Button {
+            print("🟢 BUTTON TAPPED for conflict: \(conflict.date)")
+            handleConflictTap(conflict)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Conflict on \(conflict.date)")
+                            .font(.subheadline.bold())
+                        Text("\(conflict.event1) vs \(conflict.event2)")
+                            .font(.caption)
+                        Text(conflict.reason)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
                     Image(systemName: "chevron.right")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(Color.red.opacity(0.1))
+            .cornerRadius(8)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(8)
-        .onTapGesture {
-            handleDeadlineTap(deadline)
-        }
-    }
-
-    private func conflictCard(_ conflict: ProactiveAssistantResponse.SchedulingConflict) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Conflict on \(conflict.date)")
-                        .font(.subheadline.bold())
-                    Text("\(conflict.event1) vs \(conflict.event2)")
-                        .font(.caption)
-                    Text(conflict.reason)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(8)
-        .onTapGesture {
-            handleConflictTap(conflict)
-        }
+        .buttonStyle(.plain)
     }
 
     private func toolsSection(_ tools: [ProactiveAssistantResponse.ToolExecution]) -> some View {
@@ -308,16 +320,22 @@ struct ProactiveAssistantView: View {
     // MARK: - Event Handlers
 
     private func handleEventTap(_ event: CalendarEvent) {
+        print("🎯 Event tapped: \(event.title)")
+
         guard let eventId = event.appleCalendarEventId else {
             // Event not synced yet - show message
+            print("⚠️ Event not synced yet")
             alertMessage = "This event hasn't been synced to your Calendar yet. Tap the sync button to add it to your calendar."
             showingAlert = true
             return
         }
 
+        print("✅ Event has ID: \(eventId)")
+
         // Get the root view controller
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootViewController = windowScene.windows.first?.rootViewController else {
+            print("❌ Could not get root view controller")
             alertMessage = "Unable to open Calendar app"
             showingAlert = true
             return
@@ -329,12 +347,15 @@ struct ProactiveAssistantView: View {
             topController = presented
         }
 
+        print("🚀 Opening event in Calendar app")
+
         // Open the event in Calendar app
         Task {
             do {
                 try await eventKitUIService.openEvent(eventId: eventId, from: topController)
             } catch {
                 await MainActor.run {
+                    print("❌ Failed to open event: \(error)")
                     alertMessage = "Failed to open event: \(error.localizedDescription)"
                     showingAlert = true
                 }
@@ -343,16 +364,22 @@ struct ProactiveAssistantView: View {
     }
 
     private func handleDeadlineTap(_ deadline: Deadline) {
+        print("🎯 Deadline tapped: \(deadline.task)")
+
         guard let reminderId = deadline.appleReminderId else {
             // Deadline not synced yet - show message
+            print("⚠️ Deadline not synced yet")
             alertMessage = "This deadline hasn't been synced to your Reminders yet. Tap the sync button to add it to your reminders."
             showingAlert = true
             return
         }
 
+        print("✅ Deadline has reminder ID: \(reminderId)")
+
         // Get the root view controller
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootViewController = windowScene.windows.first?.rootViewController else {
+            print("❌ Could not get root view controller")
             alertMessage = "Unable to open Reminders app"
             showingAlert = true
             return
@@ -364,12 +391,15 @@ struct ProactiveAssistantView: View {
             topController = presented
         }
 
+        print("🚀 Opening Reminders app")
+
         // Open the reminder in Reminders app
         Task {
             do {
                 try await eventKitUIService.openReminder(reminderId: reminderId, from: topController)
             } catch {
                 await MainActor.run {
+                    print("❌ Failed to open reminder: \(error)")
                     alertMessage = "Failed to open reminder: \(error.localizedDescription)"
                     showingAlert = true
                 }
@@ -378,16 +408,20 @@ struct ProactiveAssistantView: View {
     }
 
     private func handleConflictTap(_ conflict: ProactiveAssistantResponse.SchedulingConflict) {
+        print("🎯 Conflict tapped: \(conflict.date)")
+
         // Parse the date string and open Calendar app at that date
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
 
         guard let date = dateFormatter.date(from: conflict.date) else {
             // If we can't parse the date, just open the calendar app
+            print("⚠️ Could not parse date, opening Calendar at today")
             eventKitUIService.openCalendarApp(at: Date())
             return
         }
 
+        print("🚀 Opening Calendar app at date: \(date)")
         eventKitUIService.openCalendarApp(at: date)
     }
 }
