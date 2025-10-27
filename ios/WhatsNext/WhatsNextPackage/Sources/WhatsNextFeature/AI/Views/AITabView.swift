@@ -8,6 +8,10 @@ struct AITabView: View {
     @State private var isLoadingConversations = false
     @State private var selectedFeature: AIFeature = .events
     @State private var showSyncSettings = false
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
+
+    private let eventKitUIService = EventKitUIService.shared
 
     enum AIFeature: String, CaseIterable {
         case events = "Events"
@@ -48,21 +52,26 @@ struct AITabView: View {
                 featureContent
             }
             .navigationTitle("AI Insights")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        print("🔧 Gear button tapped - opening settings")
+                        print("🔧 Settings button tapped")
                         showSyncSettings = true
                     } label: {
-                        Image(systemName: "calendar.badge.gearshape")
+                        Image(systemName: "gearshape")
                             .font(.title3)
-                            .padding(8)
-                            .contentShape(Rectangle())
+                            .foregroundStyle(.blue)
                     }
                 }
             }
             .sheet(isPresented: $showSyncSettings) {
                 CalendarSyncSettingsView(viewModel: vm)
+            }
+            .alert("Calendar Action", isPresented: $showingAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage)
             }
             .task {
                 await loadConversations()
@@ -212,6 +221,19 @@ struct AITabView: View {
         Group {
             if vm.isAnalyzing {
                 ProgressView("Finding events...")
+            } else if let progress = vm.syncProgress {
+                VStack(spacing: 12) {
+                    ProgressView(value: Double(progress.current), total: Double(progress.total))
+                        .padding(.horizontal, 40)
+                    Text("Syncing \(progress.current) of \(progress.total)")
+                        .font(.headline)
+                    Text(progress.currentItem)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
             } else if vm.eventsByConversation.isEmpty {
                 emptyStateView(icon: "calendar", message: "No events found")
             } else {
@@ -242,35 +264,42 @@ struct AITabView: View {
     }
 
     private func eventRow(_ event: CalendarEvent) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(event.title).font(.headline)
-                HStack {
-                    Text(event.date, style: .date)
-                    if let time = event.time {
-                        Text("•")
-                        Text(time)
+        Button {
+            print("🟢 EVENT TAPPED: \(event.title)")
+            handleEventTap(event)
+        } label: {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(event.title).font(.headline)
+                    HStack {
+                        Text(event.date, style: .date)
+                        if let time = event.time {
+                            Text("•")
+                            Text(time)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    if let location = event.location {
+                        Label(location, systemImage: "location")
+                            .font(.caption)
+                    }
+                    if let description = event.description {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if let location = event.location {
-                    Label(location, systemImage: "location")
-                        .font(.caption)
-                }
-                if let description = event.description {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
+
+                Spacer()
+
+                // Sync status indicator
+                syncStatusBadge(event.parsedSyncStatus)
             }
-
-            Spacer()
-
-            // Sync status indicator
-            syncStatusBadge(event.parsedSyncStatus)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
     }
 
     private func syncStatusBadge(_ status: SyncStatus) -> some View {
@@ -369,6 +398,66 @@ struct AITabView: View {
             .background(Color.orange.opacity(0.1))
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Event Tap Handler
+
+    private func handleEventTap(_ event: CalendarEvent) {
+        print("🎯 Event tapped: \(event.title)")
+
+        // Get the root view controller first (needed for both sync and opening)
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootViewController = windowScene.windows.first?.rootViewController else {
+            print("❌ Could not get root view controller")
+            alertMessage = "Unable to open Calendar app"
+            showingAlert = true
+            return
+        }
+
+        // Find the topmost presented view controller
+        var topController = rootViewController
+        while let presented = topController.presentedViewController {
+            topController = presented
+        }
+
+        Task {
+            var eventId = event.appleCalendarEventId
+
+            // If event not synced yet, create it automatically
+            if eventId == nil {
+                print("⚙️ Event not synced yet - auto-syncing to Calendar")
+                do {
+                    eventId = try await vm.createEventInCalendar(event)
+                    print("✅ Event created with ID: \(eventId!)")
+
+                    // Update local event object to prevent duplicates on next tap
+                    await MainActor.run {
+                        vm.updateEventWithSyncId(eventId: event.id, appleCalendarEventId: eventId!)
+                    }
+                } catch {
+                    await MainActor.run {
+                        print("❌ Failed to create event: \(error)")
+                        alertMessage = "Failed to create event in Calendar: \(error.localizedDescription)"
+                        showingAlert = true
+                    }
+                    return
+                }
+            } else {
+                print("✅ Event already synced with ID: \(eventId!)")
+            }
+
+            // Now open the event in Calendar app
+            print("🚀 Opening event in Calendar app")
+            do {
+                try await eventKitUIService.openEvent(eventId: eventId!, from: topController)
+            } catch {
+                await MainActor.run {
+                    print("❌ Failed to open event: \(error)")
+                    alertMessage = "Failed to open event: \(error.localizedDescription)"
+                    showingAlert = true
+                }
+            }
+        }
     }
 }
 

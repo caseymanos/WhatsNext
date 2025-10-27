@@ -180,51 +180,25 @@ final class CalendarSyncEngine {
             throw SyncError.googleNotConfigured
         }
 
-        guard let calendarId = settings.googleCalendarId else {
-            throw SyncError.googleNotConfigured
-        }
-
-        // Read OAuth tokens from secure Keychain storage
-        let keychain = KeychainService.shared
-        guard let tokens = try? await keychain.retrieveGoogleTokens() else {
+        guard let accessToken = settings.googleAccessToken,
+              let refreshToken = settings.googleRefreshToken,
+              let tokenExpiry = settings.googleTokenExpiry,
+              let calendarId = settings.googleCalendarId else {
             throw SyncError.googleNotConfigured
         }
 
         // Check and refresh token if needed
         var credentials = GoogleOAuthCredentials(
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-            expiresAt: tokens.expiresAt,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresAt: tokenExpiry,
             scope: "https://www.googleapis.com/auth/calendar"
         )
 
         if credentials.willExpireSoon {
-            // Refresh the access token
-            logger.info("Google access token expiring soon, refreshing...")
-
-            // Use server client ID for token refresh (web client ID from Google Cloud Console)
-            let clientId = "169626497145-480k40j56rc3ufluv8i8o6sr2cp5gki0.apps.googleusercontent.com"
-
-            do {
-                // For mobile apps, Google allows refresh without client secret in certain configurations
-                // If this fails, the app needs proper OAuth 2.0 configuration in Google Cloud Console
-                credentials = try await googleService.refreshAccessToken(
-                    refreshToken: tokens.refreshToken,
-                    clientId: clientId,
-                    clientSecret: "" // Mobile apps typically don't need this
-                )
-
-                // Update Keychain with new tokens (secure storage)
-                try await keychain.updateGoogleAccessToken(
-                    credentials.accessToken,
-                    expiresAt: credentials.expiresAt
-                )
-
-                logger.info("Successfully refreshed Google access token in Keychain")
-            } catch {
-                logger.error("Failed to refresh Google token: \(error.localizedDescription)")
-                throw SyncError.googleNotConfigured
-            }
+            // TODO: Get client ID and secret from config
+            // For now, throw error requiring manual re-auth
+            throw SyncError.googleNotConfigured
         }
 
         // Convert to Google Calendar format
@@ -403,23 +377,14 @@ final class CalendarSyncEngine {
                 try await removeFromSyncQueue(itemId: item.id)
             } catch {
                 // Failed - update retry info
-                let originalVersion = item.version
                 item.scheduleNextRetry()
                 item.lastError = error.localizedDescription
 
-                // Use optimistic locking to prevent race conditions
-                do {
-                    try await supabase.database
-                        .from("calendar_sync_queue")
-                        .update(item)
-                        .eq("id", value: item.id)
-                        .eq("version", value: originalVersion)
-                        .execute()
-                } catch {
-                    // Version mismatch (another process updated this item)
-                    // This is expected in concurrent scenarios, just log and continue
-                    logger.info("Sync queue item \(item.id) was already updated by another process (version conflict)")
-                }
+                try await supabase.database
+                    .from("calendar_sync_queue")
+                    .update(item)
+                    .eq("id", value: item.id)
+                    .execute()
             }
         }
     }
@@ -574,75 +539,23 @@ final class CalendarSyncEngine {
 
     // MARK: - Bulk Sync
 
-    /// Result of bulk sync operation
-    public struct BulkSyncResult: Sendable {
-        public let successCount: Int
-        public let failureCount: Int
-        public let errors: [(itemId: UUID, itemTitle: String, error: String)]
-
-        public var totalProcessed: Int { successCount + failureCount }
-        public var hasFailures: Bool { failureCount > 0 }
-
-        public var summary: String {
-            if !hasFailures {
-                return "Successfully synced \(successCount) items"
-            } else {
-                return "Synced \(successCount) items successfully, \(failureCount) failed"
-            }
-        }
-    }
-
     /// Sync all pending calendar events for user
-    func syncAllPendingEvents(userId: UUID) async throws -> BulkSyncResult {
-        // Get conversations where user is a participant
-        struct ConversationIdRow: Decodable {
-            let conversation_id: UUID
-        }
-
-        let participantRows: [ConversationIdRow] = try await supabase.database
-            .from("conversation_participants")
-            .select("conversation_id")
-            .eq("user_id", value: userId)
-            .execute()
-            .value
-
-        let userConversations = participantRows.map { $0.conversation_id }
-
-        guard !userConversations.isEmpty else {
-            return BulkSyncResult(successCount: 0, failureCount: 0, errors: [])
-        }
-
-        // Query events in user's conversations with pending sync status
+    func syncAllPendingEvents(userId: UUID) async throws {
         let pendingEvents: [CalendarEvent] = try await supabase.database
             .from("calendar_events")
             .select()
-            .in("conversation_id", values: userConversations.map { $0.uuidString })
+            .eq("user_id", value: userId)
             .or("sync_status.eq.pending,sync_status.is.null")
             .execute()
             .value
 
-        var successCount = 0
-        var errors: [(UUID, String, String)] = []
-
         for event in pendingEvents {
-            do {
-                try await syncCalendarEvent(event, userId: userId)
-                successCount += 1
-            } catch {
-                logger.error("Failed to sync event '\(event.title)': \(error.localizedDescription)")
-                errors.append((event.id, event.title, error.localizedDescription))
-            }
+            try? await syncCalendarEvent(event, userId: userId)
         }
-
-        return BulkSyncResult(
-            successCount: successCount,
-            failureCount: errors.count,
-            errors: errors
-        )
     }
 
     /// Sync all pending deadlines for user
-    func syncAllPendingDeadlines(userId: UUID) async throws -> BulkSyncResult {
+    func syncAllPendingDeadlines(userId: UUID) async throws {
         let pendingDeadlines: [Deadline] = try await supabase.database
             .from("deadlines")
             .select()
@@ -651,23 +564,8 @@ final class CalendarSyncEngine {
             .execute()
             .value
 
-        var successCount = 0
-        var errors: [(UUID, String, String)] = []
-
         for deadline in pendingDeadlines {
-            do {
-                try await syncDeadlineToReminders(deadline, userId: userId)
-                successCount += 1
-            } catch {
-                logger.error("Failed to sync deadline '\(deadline.task)': \(error.localizedDescription)")
-                errors.append((deadline.id, deadline.task, error.localizedDescription))
-            }
+            try? await syncDeadlineToReminders(deadline, userId: userId)
         }
-
-        return BulkSyncResult(
-            successCount: successCount,
-            failureCount: errors.count,
-            errors: errors
-        )
     }
 }
