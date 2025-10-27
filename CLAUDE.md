@@ -4,10 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WhatsNext (MessageAI) is a modern iOS messaging application with AI capabilities, built with SwiftUI and Supabase. The project is being developed in phases:
-
-- **Phase 1 (Core)**: Complete - Authentication, 1:1 and group messaging, real-time features, offline support, read receipts, and push notifications
-- **Phase 2 (AI)**: Planned - AI integration for message enhancement, smart replies, and conversation summaries
+WhatsNext is a modern iOS messaging application with AI-powered assistance, built with SwiftUI and Supabase. The app combines traditional chat functionality with intelligent AI capabilities for proactive assistance, conflict detection, deadline tracking, and smart organization.
 
 ## Development Commands
 
@@ -34,7 +31,11 @@ supabase status
 
 ```bash
 # Open the iOS project in Xcode
-open ios/MessageAI/Package.swift
+cd ios/WhatsNext
+open WhatsNext.xcworkspace
+
+# Or use xed
+xed ios/WhatsNext
 
 # Build and run in simulator (⌘+R in Xcode)
 # Note: Push notifications require a real device, not simulator
@@ -46,7 +47,10 @@ Required environment variables in `.env`:
 - `IOS_SUPABASE_URL` - Your Supabase project URL
 - `IOS_SUPABASE_ANON_KEY` - Your Supabase anonymous key
 
-These are loaded into Xcode via `ios/MessageAI/Resources/Config.xcconfig` and injected into `Info.plist`.
+Additional AI configuration:
+- `OPENAI_API_KEY` - OpenAI API key for AI features
+
+These are loaded into Xcode via `ios/WhatsNext/Resources/Config.xcconfig` and injected into `Info.plist`.
 
 ## Architecture
 
@@ -63,15 +67,19 @@ The iOS app follows **MVVM architecture** with clean separation of concerns:
   - `LocalStorageService` - SwiftData persistence layer
   - `MessageSyncService` - Offline message queue and sync
   - `PushNotificationService` - APNs token registration
+  - `CalendarSyncEngine` - EventKit integration for calendar syncing
+  - `AIService` - AI-powered feature coordination (SupabaseAIService/MockAIService)
 
 - **ViewModels**: `@MainActor` view models manage UI state and coordinate services
   - `AuthViewModel` - Authentication flow state
   - `ConversationListViewModel` - Conversation list with realtime updates
   - `ChatViewModel` - Chat screen with messages, typing indicators, optimistic UI
+  - `AIViewModel` - AI features coordinator and state management
 
 - **Models**: Clean data models separate from UI
   - `User`, `Conversation`, `Message` - Codable structs matching Supabase schema
   - `LocalModels.swift` - SwiftData models for offline persistence
+  - AI models: `Deadline`, `Conflict`, `RSVP`, `Decision`, `ProactiveAssistant`
 
 ### Data Flow Patterns
 
@@ -102,15 +110,21 @@ The iOS app follows **MVVM architecture** with clean separation of concerns:
 ### Backend Structure
 
 **Database** (PostgreSQL via Supabase):
-- 6 tables: `users`, `conversations`, `conversation_participants`, `messages`, `typing_indicators`, `read_receipts`
+- Core tables: `users`, `conversations`, `conversation_participants`, `messages`, `typing_indicators`, `read_receipts`
+- Calendar tables: `calendar_events`, `sync_queue`
+- AI tables: `ai_deadlines`, `ai_conflicts`, `ai_rsvps`, `ai_decisions`, `ai_priority_messages`, `ai_proactive_assistant`
 - Row-Level Security (RLS) policies enforce access control on all tables
 - Triggers auto-update `conversations.updated_at` on new messages
 - Push notification trigger calls edge function on message insert
+- AI processing triggers for automatic message and event analysis
 
 **Edge Functions** (Deno):
 - `send-notification` - APNs HTTP/2 relay with JWT authentication
-- Triggered by database on new messages
-- Supports both sandbox and production APNs environments
+- `proactive-assistant` - AI-powered proactive assistance
+- `detect-conflicts-agent` - Scheduling conflict detection
+- `parse-message-ai` - Message content analysis
+- Triggered by database events and real-time processing
+- Supports both sandbox and production environments
 
 ## Key Implementation Details
 
@@ -173,15 +187,13 @@ Push notifications use APNs HTTP/2 protocol with JWT authentication:
 
 **Important**: Push requires real device testing. Simulator doesn't support APNs.
 
-## Documentation Updates
+## Documentation
 
-When implementing features or fixing bugs, update the relevant documentation files in `/docs`:
+- **README.md** - Project overview, setup instructions, and architecture
+- **CLAUDE.md** - Development guidance for Claude Code (this file)
+- **docs/CHANGELOG.md** - Development history and session notes
 
-- `docs/Core-Backlog-Progress.md` - Track story completion and progress
-- `docs/CHANGELOG.md` - Add session-by-session development notes
-- Update the Cursor rule requires keeping these files in sync with implementation
-
-Do NOT create new documentation files unless specifically requested.
+Update the CHANGELOG when making significant changes. Do NOT create new documentation files unless specifically requested.
 
 ## Testing Guidelines
 
@@ -203,7 +215,7 @@ Do NOT create new documentation files unless specifically requested.
 
 ### Adding a New Service
 
-1. Create new file in `ios/MessageAI/Services/`
+1. Create new file in `ios/WhatsNext/WhatsNextPackage/Sources/WhatsNextFeature/Services/`
 2. Follow single-responsibility principle - one service per backend feature
 3. Use `SupabaseClientService.shared` for Supabase access
 4. Add proper error handling with custom error enums
@@ -211,8 +223,8 @@ Do NOT create new documentation files unless specifically requested.
 
 ### Adding a New View
 
-1. Create SwiftUI view in `ios/MessageAI/Views/`
-2. If complex, create corresponding ViewModel in `ios/MessageAI/ViewModels/`
+1. Create SwiftUI view in appropriate feature directory (e.g., `Conversations/`, `AI/Views/`)
+2. If complex, create corresponding ViewModel in the feature's ViewModels directory
 3. Mark ViewModels with `@MainActor` for thread safety
 4. Use `@Published` properties for UI state
 5. Inject dependencies via initializer (avoid global state where possible)
