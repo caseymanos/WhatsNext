@@ -388,57 +388,38 @@ final class EventKitService {
         let lists = try await getAvailableReminderLists()
         let predicate = eventStore.predicateForReminders(in: lists)
 
-        return try await withThrowingTaskGroup(of: [ExternalReminderChange].self) { group in
-            // Add timeout task (5 seconds to prevent hangs)
-            group.addTask {
-                try await Task.sleep(for: .seconds(5))
-                // Timeout reached - return empty array
-                return []
-            }
+        return try await withCheckedThrowingContinuation { continuation in
+            eventStore.fetchReminders(matching: predicate) { reminders in
+                guard let reminders = reminders else {
+                    continuation.resume(returning: [])
+                    return
+                }
 
-            // Add actual fetch task
-            group.addTask { [self] in
-                try await withCheckedThrowingContinuation { continuation in
-                    self.eventStore.fetchReminders(matching: predicate) { reminders in
-                        guard let reminders = reminders else {
-                            continuation.resume(returning: [])
-                            return
-                        }
-
-                        // Find tracked reminders that were deleted
-                        let currentReminderIds = Set(reminders.map { $0.calendarItemIdentifier })
-                        for trackedId in trackedReminderIds {
-                            if !currentReminderIds.contains(trackedId) {
-                                changes.append(ExternalReminderChange(
-                                    externalId: trackedId,
-                                    changeType: .deleted,
-                                    reminder: nil
-                                ))
-                            }
-                        }
-
-                        // Find reminders that were created or updated externally
-                        for reminder in reminders {
-                            if !trackedReminderIds.contains(reminder.calendarItemIdentifier) {
-                                changes.append(ExternalReminderChange(
-                                    externalId: reminder.calendarItemIdentifier,
-                                    changeType: .created,
-                                    reminder: reminder
-                                ))
-                            }
-                        }
-
-                        continuation.resume(returning: changes)
+                // Find tracked reminders that were deleted
+                let currentReminderIds = Set(reminders.map { $0.calendarItemIdentifier })
+                for trackedId in trackedReminderIds {
+                    if !currentReminderIds.contains(trackedId) {
+                        changes.append(ExternalReminderChange(
+                            externalId: trackedId,
+                            changeType: .deleted,
+                            reminder: nil
+                        ))
                     }
                 }
-            }
 
-            // Return whichever completes first, cancel the other
-            if let result = try await group.next() {
-                group.cancelAll()
-                return result
+                // Find reminders that were created or updated externally
+                for reminder in reminders {
+                    if !trackedReminderIds.contains(reminder.calendarItemIdentifier) {
+                        changes.append(ExternalReminderChange(
+                            externalId: reminder.calendarItemIdentifier,
+                            changeType: .created,
+                            reminder: reminder
+                        ))
+                    }
+                }
+
+                continuation.resume(returning: changes)
             }
-            return []
         }
     }
 
@@ -447,8 +428,7 @@ final class EventKitService {
     /// Combine date and time string (HH:MM format)
     private func combineDateTime(date: Date, time: String) -> Date? {
         let components = time.split(separator: ":")
-        // Handle both HH:MM and HH:MM:SS formats
-        guard components.count >= 2,
+        guard components.count == 2,
               let hour = Int(components[0]),
               let minute = Int(components[1]) else {
             return nil

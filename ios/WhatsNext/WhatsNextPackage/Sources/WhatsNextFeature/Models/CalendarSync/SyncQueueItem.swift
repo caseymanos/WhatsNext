@@ -13,7 +13,6 @@ public struct SyncQueueItem: Codable, Identifiable {
     public let maxRetries: Int
     public var lastError: String?
     public var nextRetryAt: Date?
-    public var version: Int
     public let createdAt: Date
     public let updatedAt: Date
 
@@ -28,7 +27,6 @@ public struct SyncQueueItem: Codable, Identifiable {
         case maxRetries = "max_retries"
         case lastError = "last_error"
         case nextRetryAt = "next_retry_at"
-        case version
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -44,7 +42,6 @@ public struct SyncQueueItem: Codable, Identifiable {
         maxRetries: Int = 3,
         lastError: String? = nil,
         nextRetryAt: Date? = nil,
-        version: Int = 1,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -58,7 +55,6 @@ public struct SyncQueueItem: Codable, Identifiable {
         self.maxRetries = maxRetries
         self.lastError = lastError
         self.nextRetryAt = nextRetryAt
-        self.version = version
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
