@@ -55,13 +55,33 @@ public final class ConversationListViewModel: ObservableObject {
         errorMessage = nil
         currentUserId = userId
         defer { isLoading = false }
-        
+
         do {
-            conversations = try await conversationService.fetchConversations(userId: userId)
-            
-            // Fetch last message for each conversation
+            // CRITICAL: Save existing lastMessage data to prevent flash
+            // Create dictionary mapping conversation ID -> lastMessage
+            let existingMessages: [UUID: Message] = Dictionary(
+                uniqueKeysWithValues: conversations.compactMap { conv -> (UUID, Message)? in
+                    guard let lastMsg = conv.lastMessage else { return nil }
+                    return (conv.id, lastMsg)
+                }
+            )
+
+            // Fetch fresh conversations from server
+            var freshConversations = try await conversationService.fetchConversations(userId: userId)
+
+            // CRITICAL: Restore lastMessage data immediately to prevent flash
+            for index in freshConversations.indices {
+                if let existingMessage = existingMessages[freshConversations[index].id] {
+                    freshConversations[index].lastMessage = existingMessage
+                }
+            }
+
+            // Now assign with preserved lastMessage data (prevents flash)
+            conversations = freshConversations
+
+            // Fetch updated last messages (will only trigger UI update if changed)
             await fetchLastMessages()
-            
+
             // Update global manager with conversations list
             // Note: GlobalRealtimeManager is started in WhatsNextApp.swift on login
             // We just update the conversations cache here
@@ -79,18 +99,34 @@ public final class ConversationListViewModel: ObservableObject {
     
     /// Fetch last message for each conversation
     func fetchLastMessages() async {
-        for index in conversations.indices {
+        // CRITICAL: Batch update all conversations at once to prevent cascade effect
+        // Create a copy to collect all updates, then assign once
+        var updatedConversations = conversations
+        var hasChanges = false
+
+        for index in updatedConversations.indices {
             do {
                 let messages = try await messageService.fetchMessages(
-                    conversationId: conversations[index].id,
+                    conversationId: updatedConversations[index].id,
                     limit: 1
                 )
                 if let lastMessage = messages.last {
-                    conversations[index].lastMessage = lastMessage
+                    // Only mark as changed if the message is actually different
+                    let currentLastMessage = updatedConversations[index].lastMessage
+                    if currentLastMessage?.id != lastMessage.id ||
+                       currentLastMessage?.content != lastMessage.content {
+                        updatedConversations[index].lastMessage = lastMessage
+                        hasChanges = true
+                    }
                 }
             } catch {
-                print("Error fetching last message for conversation \(conversations[index].id): \(error)")
+                print("Error fetching last message for conversation \(updatedConversations[index].id): \(error)")
             }
+        }
+
+        // CRITICAL: Only update if something actually changed (prevents flash)
+        if hasChanges {
+            conversations = updatedConversations
         }
     }
 
@@ -211,15 +247,17 @@ public final class ConversationListViewModel: ObservableObject {
             // Preserve existing data like participants and last message
             updatedConv.participants = conversations[index].participants
             updatedConv.lastMessage = conversations[index].lastMessage
-            
-            conversations[index] = updatedConv
-            
-            // Move to top if updated
-            let conv = conversations.remove(at: index)
-            conversations.insert(conv, at: 0)
-            
-            // Refresh last message
-            await fetchLastMessage(for: conv.id)
+
+            // CRITICAL: Batch all array operations into single update to prevent cascade
+            var updatedConversations = conversations
+            updatedConversations.remove(at: index)
+            updatedConversations.insert(updatedConv, at: 0)
+
+            // Single assignment triggers only ONE SwiftUI render (prevents cascade)
+            conversations = updatedConversations
+
+            // Refresh last message (fetchLastMessage now also uses batch update)
+            await fetchLastMessage(for: updatedConv.id)
         }
     }
     
@@ -263,14 +301,25 @@ public final class ConversationListViewModel: ObservableObject {
     /// Fetch last message for a specific conversation
     private func fetchLastMessage(for conversationId: UUID) async {
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
-        
+
         do {
             let messages = try await messageService.fetchMessages(
                 conversationId: conversationId,
                 limit: 1
             )
             if let lastMessage = messages.last {
-                conversations[index].lastMessage = lastMessage
+                // Check if the message actually changed
+                let currentLastMessage = conversations[index].lastMessage
+                guard currentLastMessage?.id != lastMessage.id ||
+                      currentLastMessage?.content != lastMessage.content else {
+                    // No changes - skip update to prevent unnecessary re-render
+                    return
+                }
+
+                // CRITICAL: Batch update to prevent triggering multiple renders
+                var updatedConversations = conversations
+                updatedConversations[index].lastMessage = lastMessage
+                conversations = updatedConversations
             }
         } catch {
             print("Error fetching last message: \(error)")

@@ -72,16 +72,22 @@ public final class ChatViewModel: ObservableObject {
     
     /// Fetch messages for the conversation (optimized for view reappearance)
     public func fetchMessages() async {
+        logger.info("🔵 fetchMessages called - isInitialLoadComplete: \(self.isInitialLoadComplete)")
+
         // OPTIMIZATION: If already loaded recently, do lightweight refresh only
         if isInitialLoadComplete, let lastFetch = lastFetchTime, Date().timeIntervalSince(lastFetch) < 30 {
-            logger.info("⚡️ Quick refresh - messages already loaded")
+            logger.info("⚡️ Quick refresh path - messages already loaded")
             await quickRefresh()
             return
         }
 
+        logger.info("🔵 Full fetch path - setting isLoading = true")
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        defer {
+            logger.info("🔵 Defer: setting isLoading = false")
+            isLoading = false
+        }
 
         // Always load from cache first (works offline, instant display)
         let cachedMessages = messageSyncService.fetchCachedMessages(conversationId: conversation.id)
@@ -193,7 +199,8 @@ public final class ChatViewModel: ObservableObject {
 
     /// Quick refresh when returning to already-loaded conversation (no loading state, no heavy operations)
     private func quickRefresh() async {
-        logger.info("⚡️ Quick refresh - syncing new messages only")
+        let startCount = messages.count
+        logger.info("🟢 quickRefresh started - message count: \(startCount)")
 
         // Ensure conversation is registered as open
         globalRealtimeManager.setOpenConversation(conversation.id)
@@ -206,6 +213,9 @@ public final class ChatViewModel: ObservableObject {
 
         // Update last fetch time
         lastFetchTime = Date()
+
+        let endCount = messages.count
+        logger.info("🟢 quickRefresh completed - message count: \(endCount) (changed: \(endCount != startCount))")
     }
     
     /// Setup observers for global real-time events
@@ -550,33 +560,47 @@ public final class ChatViewModel: ObservableObject {
             markingAsRead.subtract(messageIds)
         }
 
+        // Collect all successful receipts to batch update at the end
+        var receiptsToApply: [UUID: ReadReceipt] = [:]
+
         for message in unreadMessages {
             logger.info("🔴 Marking message as read: \(message.id.uuidString)")
             do {
                 try await messageService.markAsRead(messageId: message.id, userId: currentUserId)
                 logger.info("🔴 ✅ Successfully marked message \(message.id.uuidString) as read")
 
-                // Update local message with read receipt
-                if let index = messages.firstIndex(where: { $0.id == message.id }) {
-                    var updatedMessage = messages[index]
-                    let receipt = ReadReceipt(
-                        messageId: message.id,
-                        userId: currentUserId,
-                        readAt: Date()
-                    )
-                    if updatedMessage.readReceipts == nil {
-                        updatedMessage.readReceipts = [receipt]
-                    } else {
-                        updatedMessage.readReceipts?.append(receipt)
-                    }
-                    messages[index] = updatedMessage
-                    logger.info("🔴 Updated local message with read receipt")
-                }
+                // Collect receipt for batch update
+                let receipt = ReadReceipt(
+                    messageId: message.id,
+                    userId: currentUserId,
+                    readAt: Date()
+                )
+                receiptsToApply[message.id] = receipt
             } catch {
                 logger.error("🔴 ❌ Error marking message as read: \(error.localizedDescription)")
                 // On error, remove from tracking so it can be retried
                 markingAsRead.remove(message.id)
             }
+        }
+
+        // CRITICAL: Batch update all receipts at once to prevent cascade effect
+        if !receiptsToApply.isEmpty {
+            var updatedMessages = messages
+            for (messageId, receipt) in receiptsToApply {
+                if let index = updatedMessages.firstIndex(where: { $0.id == messageId }) {
+                    var updatedMessage = updatedMessages[index]
+                    if updatedMessage.readReceipts == nil {
+                        updatedMessage.readReceipts = [receipt]
+                    } else {
+                        updatedMessage.readReceipts?.append(receipt)
+                    }
+                    updatedMessages[index] = updatedMessage
+                }
+            }
+
+            // Single assignment triggers only ONE SwiftUI render (prevents cascade)
+            messages = updatedMessages
+            logger.info("🔴 Batch updated \(receiptsToApply.count) messages with read receipts")
         }
 
         logger.info("🔴 markMessagesAsRead completed")
@@ -595,12 +619,17 @@ public final class ChatViewModel: ObservableObject {
             // Group receipts by message ID
             let receiptsByMessage = Dictionary(grouping: allReceipts, by: { $0.messageId })
 
-            // Update all messages at once
+            // CRITICAL: Batch update all messages at once to prevent cascade effect
+            // Create a new array with all updates applied, then assign once
+            var updatedMessages = messages
             for (messageId, receipts) in receiptsByMessage {
-                if let index = messages.firstIndex(where: { $0.id == messageId }) {
-                    messages[index].readReceipts = receipts
+                if let index = updatedMessages.firstIndex(where: { $0.id == messageId }) {
+                    updatedMessages[index].readReceipts = receipts
                 }
             }
+
+            // Single assignment triggers only ONE SwiftUI render (prevents cascade)
+            messages = updatedMessages
 
             logger.info("✅ Fetched \(allReceipts.count) read receipts for \(ownMessages.count) messages in single batch")
         } catch {

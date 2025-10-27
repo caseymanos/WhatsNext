@@ -7,6 +7,7 @@ struct ConversationListView: View {
     @State private var showingNewConversation = false
     @State private var showingCreateGroup = false
     @State private var navPath = NavigationPath()
+    @State private var hasAppeared = false // Track if view has appeared before
     
     var body: some View {
         NavigationStack(path: $navPath) {
@@ -115,6 +116,10 @@ struct ConversationListView: View {
                 }
             }
             .task {
+                // Only fetch on first appearance to prevent flash when switching tabs
+                guard !hasAppeared else { return }
+                hasAppeared = true
+
                 if let userId = authViewModel.currentUser?.id {
                     await viewModel.fetchConversations(userId: userId)
                 }
