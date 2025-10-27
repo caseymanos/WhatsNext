@@ -3,6 +3,8 @@ import SwiftUI
 
 struct RSVPView: View {
     @ObservedObject var viewModel: AIViewModel
+    @State private var processingRSVPId: UUID?
+    @State private var showErrorAlert = false
 
     private var allRSVPs: [RSVPTracking] {
         // Only include RSVPs from effectiveConversations (selected or all if none selected)
@@ -25,6 +27,23 @@ struct RSVPView: View {
                 emptyState
             } else {
                 rsvpsList
+            }
+        }
+        .refreshable {
+            await viewModel.loadAllInsights()
+        }
+        .task {
+            // Auto-load insights when view appears
+            await viewModel.loadAllInsights()
+        }
+        .alert("Error", isPresented: $showErrorAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.errorMessage ?? "Failed to respond to RSVP")
+        }
+        .onChange(of: viewModel.errorMessage) { newValue in
+            if newValue != nil {
+                showErrorAlert = true
             }
         }
     }
@@ -104,9 +123,9 @@ struct RSVPView: View {
 
             if rsvp.status == .pending {
                 HStack(spacing: 12) {
-                    responseButton("Yes", color: .green)
-                    responseButton("No", color: .red)
-                    responseButton("Maybe", color: .orange)
+                    responseButton("Yes", color: .green, rsvp: rsvp)
+                    responseButton("No", color: .red, rsvp: rsvp)
+                    responseButton("Maybe", color: .orange, rsvp: rsvp)
                 }
                 .padding(.top, 4)
             }
@@ -114,9 +133,30 @@ struct RSVPView: View {
         .padding(.vertical, 4)
     }
 
-    private func responseButton(_ label: String, color: Color) -> some View {
-        Button(label) {
-            // TODO: Implement RSVP response
+    private func responseButton(_ label: String, color: Color, rsvp: RSVPTracking) -> some View {
+        Button {
+            Task {
+                processingRSVPId = rsvp.id
+                let status: RSVPTracking.RSVPStatus = {
+                    switch label {
+                    case "Yes": return .yes
+                    case "No": return .no
+                    case "Maybe": return .maybe
+                    default: return .pending
+                    }
+                }()
+                await viewModel.respondToRSVP(rsvp, status: status)
+                processingRSVPId = nil
+            }
+        } label: {
+            if processingRSVPId == rsvp.id {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(minWidth: 40)
+            } else {
+                Text(label)
+                    .frame(minWidth: 40)
+            }
         }
         .font(.caption.bold())
         .padding(.horizontal, 12)
@@ -124,6 +164,7 @@ struct RSVPView: View {
         .background(color.opacity(0.2))
         .foregroundStyle(color)
         .cornerRadius(8)
+        .disabled(processingRSVPId != nil) // Disable all buttons while processing
     }
 
     private func statusBadge(_ status: RSVPTracking.RSVPStatus) -> some View {

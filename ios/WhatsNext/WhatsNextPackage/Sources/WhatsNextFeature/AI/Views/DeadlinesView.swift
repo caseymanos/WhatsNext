@@ -45,6 +45,12 @@ struct DeadlinesView: View {
                 deadlinesList
             }
         }
+        .refreshable {
+            await viewModel.loadAllInsights()
+        }
+        .task {
+            await viewModel.loadAllInsights()
+        }
     }
 
     private var emptyState: some View {

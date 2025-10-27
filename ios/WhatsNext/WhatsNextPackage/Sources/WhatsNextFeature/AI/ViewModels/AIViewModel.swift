@@ -568,6 +568,156 @@ final class AIViewModel: ObservableObject {
         }
     }
 
+    // MARK: - RSVP Responses
+
+    /// Respond to an RSVP (yes/no/maybe)
+    func respondToRSVP(_ rsvp: RSVPTracking, status: RSVPTracking.RSVPStatus) async {
+        do {
+            let supabase = SupabaseClientService.shared
+            let now = ISO8601DateFormatter().string(from: Date())
+
+            // Update RSVP status and set responded_at timestamp
+            try await supabase.database
+                .from("rsvp_tracking")
+                .update([
+                    "status": status.rawValue,
+                    "responded_at": now
+                ])
+                .eq("id", value: rsvp.id)
+                .execute()
+
+            // Create calendar event if user responded "yes" or "maybe"
+            if status == .yes || status == .maybe {
+                do {
+                    let isTentative = (status == .maybe)
+                    _ = try await createCalendarEventFromRSVP(rsvp, isTentative: isTentative)
+                } catch {
+                    // Show error but don't fail the RSVP update
+                    errorMessage = "RSVP updated, but calendar event creation failed: \(error.localizedDescription)"
+                }
+            }
+
+            // Refresh the RSVP list
+            if let conversationId = rsvpsByConversation.first(where: { $0.value.contains(where: { $0.id == rsvp.id }) })?.key {
+                await refreshRSVPs(conversationId: conversationId)
+            }
+        } catch {
+            errorMessage = "Failed to respond to RSVP: \(error.localizedDescription)"
+        }
+    }
+
+    /// Create a calendar event from an RSVP
+    private func createCalendarEventFromRSVP(_ rsvp: RSVPTracking, isTentative: Bool) async throws -> CalendarEvent {
+        guard let userId = currentUserId else {
+            throw NSError(domain: "AIViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "User ID required"])
+        }
+
+        let supabase = SupabaseClientService.shared
+
+        // Determine event date: Use eventDate if available, otherwise default to 7 days from now
+        let eventDate: Date
+        if let existingEventDate = rsvp.eventDate {
+            eventDate = existingEventDate
+        } else {
+            eventDate = Date().addingTimeInterval(7 * 86400) // 7 days from now
+        }
+
+        // Create CalendarEvent object
+        let statusText = isTentative ? "Maybe (Tentative)" : "Yes"
+        let description = "RSVP Response: \(statusText)"
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateString = dateFormatter.string(from: eventDate)
+
+        // Create encodable insert data
+        struct InsertEventData: Encodable {
+            let id: String
+            let conversation_id: String
+            let message_id: String?
+            let title: String
+            let date: String
+            let time: String?
+            let location: String?
+            let description: String?
+            let category: String
+            let confidence: Double
+            let confirmed: Bool
+            let created_at: String
+            let updated_at: String
+            let sync_status: String
+        }
+
+        let now = ISO8601DateFormatter().string(from: Date())
+        let insertData = InsertEventData(
+            id: UUID().uuidString,
+            conversation_id: rsvp.conversationId.uuidString,
+            message_id: rsvp.messageId.uuidString,
+            title: rsvp.eventName,
+            date: dateString,
+            time: nil,
+            location: nil,
+            description: description,
+            category: "social",
+            confidence: 1.0,
+            confirmed: true,
+            created_at: now,
+            updated_at: now,
+            sync_status: "pending"
+        )
+
+        try await supabase.database
+            .from("calendar_events")
+            .insert(insertData)
+            .execute()
+
+        // Create CalendarEvent for sync
+        let calendarEvent = CalendarEvent(
+            id: UUID(uuidString: insertData.id)!,
+            conversationId: rsvp.conversationId,
+            messageId: rsvp.messageId,
+            title: rsvp.eventName,
+            date: eventDate,
+            time: nil,
+            location: nil,
+            description: description,
+            category: .social,
+            confidence: 1.0,
+            confirmed: true
+        )
+
+        // Sync to Apple Calendar via EventKitService
+        do {
+            try await syncEvent(calendarEvent)
+        } catch {
+            // Log error but don't fail - event is still in database
+            print("Failed to sync RSVP event to calendar: \(error.localizedDescription)")
+        }
+
+        // Refresh events to show the new calendar event
+        await refreshEvents(conversationId: rsvp.conversationId)
+
+        return calendarEvent
+    }
+
+    /// Refresh RSVPs for a conversation from database
+    private func refreshRSVPs(conversationId: UUID) async {
+        do {
+            let supabase = SupabaseClientService.shared
+            let rsvps: [RSVPTracking] = try await supabase.database
+                .from("rsvp_tracking")
+                .select()
+                .eq("conversation_id", value: conversationId)
+                .order("created_at", ascending: false)
+                .execute()
+                .value
+
+            rsvpsByConversation[conversationId] = rsvps
+        } catch {
+            print("Failed to refresh RSVPs: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Conflict Detection
 
     /// Detect scheduling conflicts for selected conversations

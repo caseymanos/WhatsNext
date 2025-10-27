@@ -13,39 +13,39 @@ const InsightsSchema = z.object({
   events: z.array(z.object({
     title: z.string().describe('Event title or name'),
     date: z.string().describe('Event date in YYYY-MM-DD format'),
-    time: z.string().optional().describe('Event time in HH:MM format (24-hour)'),
-    location: z.string().optional().describe('Event location or venue'),
-    description: z.string().optional().describe('Additional event details'),
-    category: z.enum(['school', 'medical', 'social', 'sports', 'work', 'other']).optional(),
+    time: z.string().nullish().describe('Event time in HH:MM format (24-hour)'),
+    location: z.string().nullish().describe('Event location or venue'),
+    description: z.string().nullish().describe('Additional event details'),
+    category: z.enum(['school', 'medical', 'social', 'sports', 'work', 'other']).nullish(),
     confidence: z.number().min(0).max(1).describe('Confidence level 0-1')
   })).describe('Calendar events mentioned in the message'),
 
   rsvps: z.array(z.object({
     eventName: z.string().describe('Name of the event requiring RSVP'),
-    deadline: z.string().optional().describe('RSVP deadline in ISO 8601 format'),
-    eventDate: z.string().optional().describe('Event date in ISO 8601 format'),
-    requestedBy: z.string().optional().describe('Who is requesting the RSVP')
+    deadline: z.string().nullish().describe('RSVP deadline in ISO 8601 format'),
+    eventDate: z.string().nullish().describe('Event date in ISO 8601 format'),
+    requestedBy: z.string().nullish().describe('Who is requesting the RSVP')
   })).describe('RSVP requests found in the message'),
 
   deadlines: z.array(z.object({
     task: z.string().describe('Task or action item description'),
     deadline: z.string().describe('Deadline in ISO 8601 format'),
-    category: z.enum(['school', 'bills', 'chores', 'forms', 'other']).optional(),
-    priority: z.enum(['urgent', 'high', 'medium', 'low']).optional(),
-    details: z.string().optional().describe('Additional details about the task')
+    category: z.enum(['school', 'bills', 'chores', 'forms', 'other']).nullish(),
+    priority: z.enum(['urgent', 'high', 'medium', 'low']).nullish(),
+    details: z.string().nullish().describe('Additional details about the task')
   })).describe('Deadlines and tasks with due dates'),
 
   decisions: z.array(z.object({
     decisionText: z.string().describe('The decision or commitment made'),
-    category: z.enum(['activity', 'schedule', 'purchase', 'policy', 'other']).optional(),
-    deadline: z.string().optional().describe('Decision deadline in YYYY-MM-DD format')
+    category: z.enum(['activity', 'schedule', 'purchase', 'policy', 'other']).nullish(),
+    deadline: z.string().nullish().describe('Decision deadline in YYYY-MM-DD format')
   })).describe('Decisions or commitments made in the conversation'),
 
   priority: z.object({
     level: z.enum(['urgent', 'high', 'medium']).describe('Priority level'),
     reason: z.string().describe('Why this message is high priority'),
     actionRequired: z.boolean().describe('Whether immediate action is needed')
-  }).optional().describe('Priority flag if message requires urgent attention')
+  }).nullish().describe('Priority flag if message requires urgent attention')
 });
 
 // Request schema
@@ -104,15 +104,13 @@ serve(async (req) => {
     }
 
     // Fetch context: Previous 5 messages for better understanding
+    // Fetch last 5 messages excluding the current one being processed
+    // This avoids race conditions with the just-inserted message
     const { data: contextMessages } = await supabase
       .from('messages')
       .select('content, sender_id, created_at')
       .eq('conversation_id', conversationId)
-      .lt('created_at', (await supabase
-        .from('messages')
-        .select('created_at')
-        .eq('id', messageId)
-        .single()).data?.created_at || new Date().toISOString())
+      .neq('id', messageId)  // Exclude the message being processed
       .order('created_at', { ascending: false })
       .limit(5);
 
